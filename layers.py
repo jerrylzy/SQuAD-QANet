@@ -13,25 +13,32 @@ from util import masked_softmax
 
 
 class Embedding(nn.Module):
-    """Embedding layer used by BiDAF, without the character-level component.
+    # Character embedding size limit
+    CHAR_LIMIT = 16
 
-    Word-level embeddings are further refined using a 2-layer Highway Encoder
+    """Embedding layer used by BiDAF
+
+    Char- and word-level embeddings are further refined using a 2-layer Highway Encoder
     (see `HighwayEncoder` class for details).
 
     Args:
+        char_vectors (torch.Tensor): Pre-trained char vectors.
         word_vectors (torch.Tensor): Pre-trained word vectors.
         hidden_size (int): Size of hidden activations.
         drop_prob (float): Probability of zero-ing out activations
     """
-    def __init__(self, word_vectors, hidden_size, drop_prob):
+    def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob):
         super(Embedding, self).__init__()
         self.drop_prob = drop_prob
-        self.embed = nn.Embedding.from_pretrained(word_vectors)
-        self.proj = nn.Linear(word_vectors.size(1), hidden_size, bias=False)
+        self.char_embed = nn.Embedding.from_pretrained(char_vectors)
+        self.word_embed = nn.Embedding.from_pretrained(word_vectors)
+        self.proj = nn.Linear(word_vectors.size(1) + char_vectors.size(1) * self.CHAR_LIMIT, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
 
-    def forward(self, x):
-        emb = self.embed(x)   # (batch_size, seq_len, embed_size)
+    def forward(self, w_idx, c_idx):
+        word_emb = self.word_embed(w_idx)   # (batch_size, seq_len, word_embed_size)
+        char_emb = self.char_embed(c_idx)   # (batch_size, seq_len, char_limit, char_embed_size)
+        emb = torch.cat((word_emb, char_emb.view(*char_emb.shape[:2], -1)), dim=2)   # (batch_size, seq_len, embed_size)
         emb = F.dropout(emb, self.drop_prob, self.training)
         emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
         emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
