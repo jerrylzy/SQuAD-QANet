@@ -14,5 +14,5 @@ dependencies:
   - tensorboardX
   - tqdm
   - urllib3
-  - pip:
-    - torch==1.10.2+cu113
+  - pytorch
+  - cudatoolkit=11.3
