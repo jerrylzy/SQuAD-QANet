@@ -4,11 +4,11 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python
+  - python=3.9
   - ujson
   - numpy
   - pip
-  - spacy=2.0.16
+  - spacy
   - tensorboard
   - tensorflow
   - tensorboardX
