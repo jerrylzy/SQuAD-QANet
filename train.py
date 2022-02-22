@@ -71,7 +71,7 @@ def main(args):
     # Get optimizer and scheduler
     optimizer = optim.Adadelta(model.parameters(), args.lr,
                                weight_decay=args.l2_wd)
-    scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
+    # scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
 
     # Get data loader
     log.info('Building dataset...')
@@ -92,6 +92,7 @@ def main(args):
     log.info('Training...')
     steps_till_eval = args.eval_steps
     epoch = step // len(train_dataset)
+    scheduler = sched.StepLR(optimizer, step_size=5 * len(train_dataset), gamma=0.9) # Decay LR every 5 epochs. Decrease by 10%
     while epoch != args.num_epochs:
         epoch += 1
         log.info(f'Starting epoch {epoch}...')
