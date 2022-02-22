@@ -142,9 +142,8 @@ class PositionalEncoding(nn.Module):
         self.register_buffer('pe', pe)
     
     def forward(self, x):
-        # batch size, sequence size, embedding dimension
-        N, S, D = x.shape
-        output = self.dropout(x + self.pe[:, :S, :])
+        # x.shape = batch size, sequence size, embedding dimension
+        output = self.dropout(x + self.pe[:, :x.shape[1], :])
         return output
 
 
@@ -161,19 +160,20 @@ class MultiHeadAttention(nn.Module):
         self.proj = nn.Linear(hidden_size, hidden_size)
         self.num_heads = num_heads
         self.d_k = hidden_size // num_heads
+        self.scaled_dk = math.sqrt(self.d_k)
         self.softmax = nn.Softmax(dim=-1)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, query, key, value):
         # batch size, sequence size, embedding dimension
-        N, S, D = query.shape
-        N, T, D = value.shape
+        N, S, _ = query.shape
+        N, T, _ = value.shape
         H = self.num_heads
         q = self.query(query).view(N, S, H, self.d_k).transpose(1, 2) # (N, H, S, dk)
         k = self.key(key).view(N, T, H, self.d_k).transpose(1, 2)     # (N, H, T, dk)
         v = self.value(value).view(N, T, H, self.d_k).transpose(1, 2) # (N, H, T, dk)
 
-        att = torch.matmul(q, k.transpose(2, 3)) / math.sqrt(self.d_k) # Scaled Dot Product Attention
+        att = torch.matmul(q, k.transpose(2, 3)) / self.scaled_dk # Scaled Dot Product Attention
 
         att = self.dropout(self.softmax(att)) # (N, H, S, T)
 
@@ -201,7 +201,7 @@ class SelfAttention(nn.Module):
         output = self.layer_norm(att + x)
 
         return output
-        
+
 
 class BiDAFAttention(nn.Module):
     """Bidirectional attention originally used by BiDAF.
