@@ -4,6 +4,8 @@ Author:
     Chris Chute (chute@stanford.edu)
 """
 
+import math
+from re import X
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -121,6 +123,85 @@ class RNNEncoder(nn.Module):
 
         return x
 
+
+class PositionalEncoding(nn.Module):
+    """
+    Fixed positional encoding layer
+    """
+    def __init__(self, hidden_size, dropout=0.1, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        assert hidden_size % 2 == 0
+
+        pe = torch.zeros(1, max_len, hidden_size)
+        i = torch.arange(0, max_len).repeat((hidden_size // 2, 1)).T
+        j = torch.arange(0, hidden_size, 2)
+        index = i * 10000 ** (-j / hidden_size)
+        pe[:, :, 0::2] = torch.sin(index)
+        pe[:, :, 1::2] = torch.cos(index)
+        self.register_buffer('pe', pe)
+    
+    def forward(self, x):
+        # batch size, sequence size, embedding dimension
+        N, S, D = x.shape
+        output = self.dropout(x + self.pe[:, :S, :])
+        return output
+
+
+class MultiHeadAttention(nn.Module):
+    """
+    Transformer Multihead Self-Attention
+    """
+    def __init__(self, hidden_size, num_heads, dropout=0.1):
+        super(MultiHeadAttention, self).__init__()
+        assert hidden_size % num_heads == 0
+        self.key = nn.Linear(hidden_size, hidden_size)
+        self.query = nn.Linear(hidden_size, hidden_size)
+        self.value = nn.Linear(hidden_size, hidden_size)
+        self.proj = nn.Linear(hidden_size, hidden_size)
+        self.num_heads = num_heads
+        self.d_k = hidden_size // num_heads
+        self.softmax = nn.Softmax(dim=-1)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, query, key, value):
+        # batch size, sequence size, embedding dimension
+        N, S, D = query.shape
+        N, T, D = value.shape
+        H = self.num_heads
+        q = self.query(query).view(N, S, H, self.d_k).transpose(1, 2) # (N, H, S, dk)
+        k = self.key(key).view(N, T, H, self.d_k).transpose(1, 2)     # (N, H, T, dk)
+        v = self.value(value).view(N, T, H, self.d_k).transpose(1, 2) # (N, H, T, dk)
+
+        att = torch.matmul(q, k.transpose(2, 3)) / math.sqrt(self.d_k) # Scaled Dot Product Attention
+
+        att = self.dropout(self.softmax(att)) # (N, H, S, T)
+
+        y = torch.matmul(att, v).transpose(1, 2).contiguous().view(N, S, -1)
+        output = self.proj(y)
+        return output
+
+
+class SelfAttention(nn.Module):
+    """
+    BiDAF Self-Attention Layer
+    """
+    def __init__(self, hidden_size, num_heads, dropout=0.1):
+        super(SelfAttention, self).__init__()
+        assert hidden_size % num_heads == 0
+        self.pe = PositionalEncoding(hidden_size, dropout)
+        self.multihead_att = MultiHeadAttention(hidden_size, num_heads, dropout)
+        self.residual_dropout = nn.Dropout(dropout)
+        self.layer_norm = nn.LayerNorm(hidden_size)
+
+    def forward(self, x):
+        # Add positional encoding
+        x = self.pe(x)
+        att = self.residual_dropout(self.multihead_att(x, x, x))
+        output = self.layer_norm(att + x)
+
+        return output
+        
 
 class BiDAFAttention(nn.Module):
     """Bidirectional attention originally used by BiDAF.
