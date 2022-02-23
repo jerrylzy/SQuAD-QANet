@@ -190,17 +190,30 @@ class SelfAttention(nn.Module):
     def __init__(self, hidden_size, num_heads, dropout=0.1):
         super(SelfAttention, self).__init__()
         assert hidden_size % num_heads == 0
+
+        # Attention
         self.pe = PositionalEncoding(hidden_size, dropout)
         self.multihead_att = MultiHeadAttention(hidden_size, num_heads, dropout)
-        self.residual_dropout = nn.Dropout(dropout)
-        self.layer_norm = nn.LayerNorm(hidden_size)
+        self.residual_dropout_1 = nn.Dropout(dropout)
+        self.layer_norm_1 = nn.LayerNorm(hidden_size)
+
+        # Feed Forward
+        self.linear_1 = nn.Linear(hidden_size, hidden_size)
+        self.linear_2 = nn.Linear(hidden_size, hidden_size)
+        self.residual_dropout_2 = nn.Dropout(dropout)
+        self.layer_norm_2 = nn.LayerNorm(hidden_size)
 
     def forward(self, x):
         # Add positional encoding
         x = self.pe(x)
-        att = self.residual_dropout(self.multihead_att(x, x, x))
-        output = self.layer_norm(att + x)
-
+        # MultiHeadAttention
+        att = self.residual_dropout_1(self.multihead_att(x, x, x))
+        att = self.layer_norm_1(att + x)
+        # FF
+        ff = F.leaky_relu(self.linear_1(att))
+        ff = F.leaky_relu(self.linear_2(ff))
+        ff = self.residual_dropout_2(ff)
+        output = self.layer_norm_2(ff + att)
         return output
 
 

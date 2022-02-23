@@ -101,6 +101,10 @@ def get_train_args():
                         type=float,
                         default=0.5,
                         help='Learning rate.')
+    parser.add_argument('--lr_decay',
+                        type=float,
+                        default=0.9,
+                        help='Learning rate decay rate.')
     parser.add_argument('--l2_wd',
                         type=float,
                         default=0,

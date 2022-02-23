@@ -92,7 +92,7 @@ def main(args):
     log.info('Training...')
     steps_till_eval = args.eval_steps
     epoch = step // len(train_dataset)
-    scheduler = sched.StepLR(optimizer, step_size=5 * len(train_dataset) / args.batch_size, gamma=0.9) # Decay LR every 5 epochs. Decrease by 10%
+    scheduler = sched.StepLR(optimizer, step_size=5 * len(train_dataset) // args.batch_size, gamma=args.lr_decay) # Decay LR every 5 epochs. Decrease by 10%
     while epoch != args.num_epochs:
         epoch += 1
         log.info(f'Starting epoch {epoch}...')
