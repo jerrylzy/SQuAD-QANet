@@ -17,12 +17,14 @@ import util
 from args import get_train_args
 from collections import OrderedDict
 from json import dumps
-from models import BiDAF
+from models import BiDAF, QANet
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from ujson import load as json_load
 from util import collate_fn, SQuAD
 
+torch.cuda.set_per_process_memory_fraction(1.)
+torch.cuda.empty_cache()
 
 def main(args):
     # Set up logging and devices
@@ -47,10 +49,16 @@ def main(args):
 
     # Get model
     log.info('Building model...')
-    model = BiDAF(char_vectors=char_vectors,
-                  word_vectors=word_vectors,
-                  hidden_size=args.hidden_size,
-                  drop_prob=args.drop_prob)
+    if args.qanet:
+        model = QANet(char_vectors=char_vectors,
+                      word_vectors=word_vectors,
+                      hidden_size=args.hidden_size,
+                      drop_prob=args.drop_prob)
+    else:
+        model = BiDAF(char_vectors=char_vectors,
+                      word_vectors=word_vectors,
+                      hidden_size=args.hidden_size,
+                      drop_prob=args.drop_prob)
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_path:
         log.info(f'Loading checkpoint from {args.load_path}...')
@@ -59,7 +67,6 @@ def main(args):
         step = 0
     model = model.to(device)
     model.train()
-    ema = util.EMA(model, args.ema_decay)
 
     # Get saver
     saver = util.CheckpointSaver(args.save_dir,
@@ -69,9 +76,15 @@ def main(args):
                                  log=log)
 
     # Get optimizer and scheduler
-    optimizer = optim.Adadelta(model.parameters(), args.lr,
+    if args.qanet:
+        optimizer = optim.Adam(model.parameters(), 0.001, betas=(0.8, 0.999), eps=1e-7)
+        ema = util.EMA(model, 0.9999)
+    else:
+        ema = util.EMA(model, args.ema_decay)
+        optimizer = optim.Adadelta(model.parameters(), args.lr,
                                weight_decay=args.l2_wd)
-    # scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
+
+    scheduler = sched.LambdaLR(optimizer, lambda epoch: 1)  # Constant LR
 
     # Get data loader
     log.info('Building dataset...')
@@ -92,7 +105,8 @@ def main(args):
     log.info('Training...')
     steps_till_eval = args.eval_steps
     epoch = step // len(train_dataset)
-    scheduler = sched.StepLR(optimizer, step_size=5 * len(train_dataset) // args.batch_size, gamma=args.lr_decay) # Decay LR every 5 epochs. Decrease by 10%
+    # scheduler = sched.StepLR(optimizer, step_size=5 * len(train_dataset) // args.batch_size,
+    #                          gamma=args.lr_decay)  # Decay LR every 5 epochs. Decrease by 10%
     while epoch != args.num_epochs:
         epoch += 1
         log.info(f'Starting epoch {epoch}...')
@@ -115,7 +129,8 @@ def main(args):
 
                 # Backward
                 loss.backward()
-                nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+                nn.utils.clip_grad_norm_(
+                    model.parameters(), args.max_grad_norm)
                 optimizer.step()
                 scheduler.step()
                 ema(model, step // batch_size)
@@ -145,7 +160,8 @@ def main(args):
                     ema.resume(model)
 
                     # Log to console
-                    results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in results.items())
+                    results_str = ', '.join(
+                        f'{k}: {v:05.2f}' for k, v in results.items())
                     log.info(f'Dev {results_str}')
 
                     # Log to TensorBoard

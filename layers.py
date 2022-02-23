@@ -5,7 +5,6 @@ Author:
 """
 
 import math
-from re import X
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -132,7 +131,7 @@ class PositionalEncoding(nn.Module):
     def __init__(self, hidden_size, dropout=0.1, max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
-        assert hidden_size % 2 == 0
+        # assert hidden_size % 2 == 0
 
         pe = torch.zeros(1, max_len, hidden_size)
         i = torch.arange(0, max_len).repeat((hidden_size // 2, 1)).T
@@ -154,7 +153,7 @@ class MultiHeadAttention(nn.Module):
     """
     def __init__(self, hidden_size, num_heads, dropout=0.1):
         super(MultiHeadAttention, self).__init__()
-        assert hidden_size % num_heads == 0
+        # assert hidden_size % num_heads == 0
         self.key = nn.Linear(hidden_size, hidden_size)
         self.query = nn.Linear(hidden_size, hidden_size)
         self.value = nn.Linear(hidden_size, hidden_size)
@@ -189,7 +188,6 @@ class SelfAttention(nn.Module):
     """
     def __init__(self, hidden_size, num_heads, dropout=0.1):
         super(SelfAttention, self).__init__()
-        assert hidden_size % num_heads == 0
 
         # Attention
         self.pe = PositionalEncoding(hidden_size, dropout)

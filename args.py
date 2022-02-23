@@ -246,3 +246,12 @@ def add_train_test_args(parser):
                         type=str,
                         default=None,
                         help='Path to load as a model checkpoint.')
+    parser.add_argument('--qanet',
+                        type=bool,
+                        default=False,
+                        help='Whether to use QANet.')
+    # parser.add_argument('--emb_size',
+    #                     type=bool,
+    #                     default=364,
+    #                     help='Size of the embedding layer of QANet')
+
