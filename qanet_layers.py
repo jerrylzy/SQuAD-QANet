@@ -26,8 +26,10 @@ class InputEmbedding(nn.Module):
     def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob):
         super(InputEmbedding, self).__init__()
         self.drop_prob = drop_prob
-        # vocab size, char emb dim
-        self.char_embed = nn.Embedding.from_pretrained(char_vectors, freeze=False, padding_idx=0)
+
+        vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
+        self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
+        nn.init.xavier_uniform_(self.char_embed)
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
         self.proj = nn.Linear(word_vectors.size(1) + char_vectors.size(1) * self.CHAR_LIMIT, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
