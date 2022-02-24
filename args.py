@@ -264,6 +264,6 @@ def add_train_test_args(parser):
     #                     help='Size of the embedding layer of QANet')
     parser.add_argument('--project',
                         type=bool,
-                        default=True,
+                        default=False,
                         help='Whether to project the BiDAF attention layer to a smaller dimension.')
 

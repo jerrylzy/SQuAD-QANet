@@ -92,6 +92,9 @@ class BiDAF(nn.Module):
 
 
 class QANet(nn.Module):
+    # Character embedding size limit
+    CHAR_LIMIT = 16
+
     """QANet model for SQuAD.
 
     Follows a high-level structure commonly found in SQuAD models:
@@ -105,16 +108,20 @@ class QANet(nn.Module):
         char_vectors (torch.Tensor): Pre-trained char vectors.
         word_vectors (torch.Tensor): Pre-trained word vectors.
         hidden_size (int): Number of features in the hidden state at each layer.
-        emb_size (int): Dimension of the embedding layer output.
         drop_prob (float): Dropout probability.
     """
 
-    def __init__(self, char_vectors, word_vectors, hidden_size=128, drop_prob=0., project=True):
+    def __init__(self, char_vectors, word_vectors, hidden_size=128, drop_prob=0., project=False):
         super().__init__()
+
+        # Dimension of the embedding layer output.
+        self.emb_size = word_vectors.size(1) + char_vectors.size(1) * self.CHAR_LIMIT
         self.emb = qanet_layers.InputEmbedding(char_vectors=char_vectors,
                                                word_vectors=word_vectors,
-                                               hidden_size=hidden_size,
+                                               hidden_size=self.emb_size,
                                                drop_prob=drop_prob)
+        
+        self.emb_proj = nn.Linear(self.emb_size, hidden_size, bias=False)
 
         self.enc = qanet_layers.EncoderBlock(
             hidden_size=hidden_size,
@@ -126,7 +133,7 @@ class QANet(nn.Module):
         self.att = layers.BiDAFAttention(hidden_size=hidden_size,
                                          drop_prob=drop_prob)
 
-        self.proj = nn.Linear(4 * hidden_size, hidden_size) if project else None
+        self.mod_proj = nn.Linear(4 * hidden_size, hidden_size) if project else None
 
         self.mod = qanet_layers.StackedEmbeddingEncoderBlock(
             hidden_size=hidden_size if project else 4 * hidden_size,
@@ -149,6 +156,9 @@ class QANet(nn.Module):
         # (batch_size, q_len, emb_size)
         q_emb = self.emb(qw_idxs, qc_idxs)
 
+        c_emb = self.emb_proj(c_emb)
+        q_emb = self.emb_proj(q_emb)
+
         c_enc = self.enc(c_emb)    # (batch_size, c_len, hidden_size)
         q_enc = self.enc(q_emb)    # (batch_size, q_len, hidden_size)
 
@@ -156,7 +166,7 @@ class QANet(nn.Module):
                        c_mask, q_mask)    # (batch_size, c_len, 4 * hidden_size)
         
         # TODO: Remove. Test projection with less size
-        att = self.proj(att) if self.proj != None else att
+        att = self.mod_proj(att) if self.mod_proj != None else att
 
         # stackd encoder blocks share weights among its three repetitions
         att_emb_1 = self.mod(att)

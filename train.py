@@ -86,8 +86,7 @@ def main(args):
         optimizer = optim.Adadelta(model.parameters(), args.lr,
                                weight_decay=args.l2_wd)
 
-    # 
-    # scheduler = sched.LambdaLR(optimizer, lambda epoch: 1)  # Constant LR
+    scheduler = sched.LambdaLR(optimizer, lambda epoch: 1)  # Constant LR
 
     # Get data loader
     log.info('Building dataset...')
@@ -112,8 +111,8 @@ def main(args):
     # AMP to use Tensor cores
     scaler = torch.cuda.amp.GradScaler(enabled=args.amp)
 
-    scheduler = sched.StepLR(optimizer, step_size=5 * len(train_dataset) // args.batch_size,
-                             gamma=args.lr_decay)  # Decay LR every 5 epochs. Decrease by 10%
+    # scheduler = sched.StepLR(optimizer, step_size=5 * len(train_dataset) // args.batch_size,
+    #                          gamma=args.lr_decay)  # Decay LR every 5 epochs. Decrease by 10%
     while epoch != args.num_epochs:
         epoch += 1
         log.info(f'Starting epoch {epoch}...')
