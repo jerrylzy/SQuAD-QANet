@@ -115,14 +115,11 @@ class QANet(nn.Module):
         super().__init__()
 
         # Dimension of the embedding layer output.
-        self.emb_size = word_vectors.size(1) + char_vectors.size(1) * self.CHAR_LIMIT
         self.emb = qanet_layers.InputEmbedding(char_vectors=char_vectors,
                                                word_vectors=word_vectors,
-                                               hidden_size=self.emb_size,
+                                               hidden_size=hidden_size,
                                                drop_prob=drop_prob)
         
-        self.emb_proj = nn.Linear(self.emb_size, hidden_size, bias=False)
-
         self.enc = qanet_layers.EncoderBlock(
             hidden_size=hidden_size,
             num_heads=8,
@@ -155,9 +152,6 @@ class QANet(nn.Module):
         c_emb = self.emb(cw_idxs, cc_idxs)
         # (batch_size, q_len, emb_size)
         q_emb = self.emb(qw_idxs, qc_idxs)
-
-        c_emb = self.emb_proj(c_emb)
-        q_emb = self.emb_proj(q_emb)
 
         c_enc = self.enc(c_emb)    # (batch_size, c_len, hidden_size)
         q_enc = self.enc(q_emb)    # (batch_size, q_len, hidden_size)

@@ -35,6 +35,7 @@ class InputEmbedding(nn.Module):
         self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
         nn.init.xavier_uniform_(self.char_embed.weight)
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
+        self.proj = nn.Linear(word_vectors.size(1) + char_emb_dim * self.CHAR_LIMIT, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, w_idx, c_idx):
@@ -46,6 +47,7 @@ class InputEmbedding(nn.Module):
         emb = torch.cat((word_emb, char_emb.view(
             *char_emb.shape[:2], -1)), dim=2)
         emb = F.dropout(emb, self.drop_prob, self.training)
+        emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
         emb = self.hwy(emb)   # (batch_size, seq_len, emb_size)
 
         return emb
