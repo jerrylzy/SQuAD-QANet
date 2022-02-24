@@ -7,6 +7,10 @@ from util import masked_softmax
 from layers import HighwayEncoder
 
 
+def stochastic_depth_layer_dropout(drop_prob, layer, num_layers):
+    return drop_prob * layer / num_layers
+
+
 class InputEmbedding(nn.Module):
     # Character embedding size limit
     CHAR_LIMIT = 16
@@ -151,15 +155,15 @@ class DepthWiseSeparableConv(nn.Module):
     def __init__(self, hidden_size, kernel_size=7):
         super().__init__()
         self.depth_conv = nn.Conv1d(in_channels=hidden_size,
-                               out_channels=hidden_size,
-                               kernel_size=kernel_size,
-                               groups=hidden_size,
-                               padding=kernel_size // 2,
-                               bias=True)
+                                    out_channels=hidden_size,
+                                    kernel_size=kernel_size,
+                                    groups=hidden_size,
+                                    padding=kernel_size // 2,
+                                    bias=True)
         self.point_conv = nn.Conv1d(in_channels=hidden_size,
-                               out_channels=hidden_size,
-                               kernel_size=1,
-                               bias=True)
+                                    out_channels=hidden_size,
+                                    kernel_size=1,
+                                    bias=True)
 
     def forward(self, x):
         depth = self.depth_conv(x.transpose(1, 2))
@@ -176,23 +180,38 @@ class EncoderBlock(nn.Module):
     def __init__(self, hidden_size, num_heads, dropout, kernel_size, num_conv_layers):
         super().__init__()
 
+        num_layers = num_conv_layers + 2
+
         # Pos Encoding
-        self.pe = PositionalEncoding(hidden_size, dropout)
+        self.pe = PositionalEncoding(
+            emb_size=hidden_size,
+            dropout=stochastic_depth_layer_dropout(
+                drop_prob=dropout,
+                layer=1,
+                num_layers=num_layers))
 
         # Conv
         self.conv = nn.Sequential(
             *[ResidualBlock(
                 DepthWiseSeparableConv(hidden_size, kernel_size),
-                hidden_size=hidden_size) for _ in range(num_conv_layers)])
+                hidden_size=hidden_size,
+                residual_dropout_p=stochastic_depth_layer_dropout(
+                    drop_prob=dropout,
+                    layer=1 + i,
+                    num_layers=num_layers)) for i in range(num_conv_layers)])
 
         # Attention
         self.multihead_att = ResidualBlock(
             MultiHeadAttention(hidden_size, num_heads, dropout),
-            hidden_size)
+            hidden_size=hidden_size,
+            residual_dropout_p=stochastic_depth_layer_dropout(
+                drop_prob=dropout,
+                layer=num_layers + 1,
+                num_layers=num_layers))
 
         # Feed Forward
         self.ff = ResidualBlock(FeedForward(
-            hidden_size), hidden_size=hidden_size)
+            hidden_size), hidden_size=hidden_size, residual_dropout_p=dropout)
 
     def forward(self, x):
         # Add positional encoding
