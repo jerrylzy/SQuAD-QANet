@@ -144,7 +144,7 @@ class QANet(nn.Module):
             num_conv_layers=2
         )
 
-        self.out = qanet_layers.QANetOutput(hidden_size=hidden_size)
+        self.out = qanet_layers.QANetOutput(hidden_size=hidden_size if project else 4 * hidden_size)
 
     def forward(self, cw_idxs, cc_idxs, qw_idxs, qc_idxs):
         c_mask = torch.zeros_like(cw_idxs) != cw_idxs
