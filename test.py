@@ -48,7 +48,7 @@ def main(args):
         model = QANet(char_vectors=char_vectors,
                       word_vectors=word_vectors,
                       hidden_size=args.hidden_size,
-                      emb_size=args.emb_size)
+                      project=args.project)
     else:
         model = BiDAF(char_vectors=char_vectors,
                       word_vectors=word_vectors,

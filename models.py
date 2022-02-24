@@ -109,7 +109,7 @@ class QANet(nn.Module):
         drop_prob (float): Dropout probability.
     """
 
-    def __init__(self, char_vectors, word_vectors, hidden_size=128, drop_prob=0.):
+    def __init__(self, char_vectors, word_vectors, hidden_size=128, drop_prob=0., project=True):
         super().__init__()
         self.emb = qanet_layers.InputEmbedding(char_vectors=char_vectors,
                                                word_vectors=word_vectors,
@@ -126,8 +126,10 @@ class QANet(nn.Module):
         self.att = layers.BiDAFAttention(hidden_size=hidden_size,
                                          drop_prob=drop_prob)
 
+        self.proj = nn.Linear(4 * hidden_size, hidden_size) if project else None
+
         self.mod = qanet_layers.StackedEmbeddingEncoderBlock(
-            hidden_size=4 * hidden_size,
+            hidden_size=hidden_size if project else 4 * hidden_size,
             num_blocks=7,
             num_heads=8,
             dropout=drop_prob,
@@ -135,7 +137,7 @@ class QANet(nn.Module):
             num_conv_layers=2
         )
 
-        self.out = qanet_layers.QANetOutput(hidden_size=4 * hidden_size)
+        self.out = qanet_layers.QANetOutput(hidden_size=hidden_size)
 
     def forward(self, cw_idxs, cc_idxs, qw_idxs, qc_idxs):
         c_mask = torch.zeros_like(cw_idxs) != cw_idxs
@@ -152,6 +154,9 @@ class QANet(nn.Module):
 
         att = self.att(c_enc, q_enc,
                        c_mask, q_mask)    # (batch_size, c_len, 4 * hidden_size)
+        
+        # TODO: Remove. Test projection with less size
+        att = self.proj(att) if self.proj != None else att
 
         # stackd encoder blocks share weights among its three repetitions
         att_emb_1 = self.mod(att)

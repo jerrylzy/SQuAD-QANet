@@ -7,6 +7,7 @@ Author:
 import numpy as np
 import random
 import torch
+import torch.cuda.amp
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -53,7 +54,8 @@ def main(args):
         model = QANet(char_vectors=char_vectors,
                       word_vectors=word_vectors,
                       hidden_size=args.hidden_size,
-                      drop_prob=args.drop_prob)
+                      drop_prob=args.drop_prob,
+                      project=args.project)
     else:
         model = BiDAF(char_vectors=char_vectors,
                       word_vectors=word_vectors,
@@ -84,7 +86,8 @@ def main(args):
         optimizer = optim.Adadelta(model.parameters(), args.lr,
                                weight_decay=args.l2_wd)
 
-    scheduler = sched.LambdaLR(optimizer, lambda epoch: 1)  # Constant LR
+    # 
+    # scheduler = sched.LambdaLR(optimizer, lambda epoch: 1)  # Constant LR
 
     # Get data loader
     log.info('Building dataset...')
@@ -105,8 +108,12 @@ def main(args):
     log.info('Training...')
     steps_till_eval = args.eval_steps
     epoch = step // len(train_dataset)
-    # scheduler = sched.StepLR(optimizer, step_size=5 * len(train_dataset) // args.batch_size,
-    #                          gamma=args.lr_decay)  # Decay LR every 5 epochs. Decrease by 10%
+
+    # AMP to use Tensor cores
+    scaler = torch.cuda.amp.GradScaler(enabled=args.amp)
+
+    scheduler = sched.StepLR(optimizer, step_size=5 * len(train_dataset) // args.batch_size,
+                             gamma=args.lr_decay)  # Decay LR every 5 epochs. Decrease by 10%
     while epoch != args.num_epochs:
         epoch += 1
         log.info(f'Starting epoch {epoch}...')
@@ -119,19 +126,31 @@ def main(args):
                 qw_idxs = qw_idxs.to(device)
                 qc_idxs = qc_idxs.to(device)
                 batch_size = cw_idxs.size(0)
-                optimizer.zero_grad()
+                optimizer.zero_grad(set_to_none=args.optim_set_to_none)
 
                 # Forward
-                log_p1, log_p2 = model(cw_idxs, cc_idxs, qw_idxs, qc_idxs)
-                y1, y2 = y1.to(device), y2.to(device)
-                loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
+                with torch.cuda.amp.autocast(enabled=args.amp):
+                    log_p1, log_p2 = model(cw_idxs, cc_idxs, qw_idxs, qc_idxs)
+                    y1, y2 = y1.to(device), y2.to(device)
+                    loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
                 loss_val = loss.item()
 
                 # Backward
-                loss.backward()
-                nn.utils.clip_grad_norm_(
-                    model.parameters(), args.max_grad_norm)
-                optimizer.step()
+                # Scales the loss, and calls backward()
+                # to create scaled gradients
+                scaler.scale(loss).backward()
+
+                # Unscales the gradients of optimizer's assigned params in-place
+                scaler.unscale_(optimizer)
+                nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+
+                # optimizer's gradients are already unscaled, so scaler.step does not unscale them,
+                # although it still skips optimizer.step() if the gradients contain infs or NaNs.
+                scaler.step(optimizer)
+
+                # Updates the scale for next iteration
+                scaler.update()
+
                 scheduler.step()
                 ema(model, step // batch_size)
 

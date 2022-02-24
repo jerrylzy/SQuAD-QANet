@@ -27,7 +27,7 @@ class InputEmbedding(nn.Module):
         super(InputEmbedding, self).__init__()
         self.drop_prob = drop_prob
         self.char_embed = nn.Embedding.from_pretrained(char_vectors)
-        self.word_embed = nn.Embedding.from_pretrained(word_vectors, freeze=True)
+        self.word_embed = nn.Embedding.from_pretrained(word_vectors)
         self.proj = nn.Linear(word_vectors.size(1) + char_vectors.size(1) * self.CHAR_LIMIT, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
 
@@ -92,18 +92,21 @@ class MultiHeadAttention(nn.Module):
         # batch size, sequence size, embedding dimension
         N, S, _ = x.shape
         H = self.num_heads
-        q = self.query(x).view(N, S, H, self.d_k).transpose(
+        q = self.query(x).view(N, S, H, self.d_k).to(memory_format=torch.channels_last).transpose(
             1, 2)  # (N, H, S, dk)
-        k = self.key(x).view(N, S, H, self.d_k).transpose(
+        k = self.key(x).view(N, S, H, self.d_k).to(memory_format=torch.channels_last).transpose(
             1, 2)     # (N, H, S, dk)
-        v = self.value(x).view(N, S, H, self.d_k).transpose(
+        v = self.value(x).view(N, S, H, self.d_k).to(memory_format=torch.channels_last).transpose(
             1, 2)  # (N, H, S, dk)
 
-        att = torch.matmul(q, k.transpose(2, 3)) / self.scaled_dk  # Scaled Dot Product Attention
+        att = torch.matmul(q, k.transpose(2, 3)).to(
+            memory_format=torch.channels_last) / self.scaled_dk  # Scaled Dot Product Attention
 
-        att = self.dropout(self.softmax(att))  # (N, H, S, T)
+        att = self.dropout(self.softmax(att)).to(
+            memory_format=torch.channels_last)  # (N, H, S, T)
 
-        y = torch.matmul(att, v).transpose(1, 2).contiguous().view(N, S, -1)
+        y = torch.matmul(att, v).to(memory_format=torch.channels_last).transpose(
+            1, 2).contiguous().view(N, S, -1)
         output = self.proj(y)
         return output
 

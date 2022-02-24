@@ -138,6 +138,14 @@ def get_train_args():
                         type=float,
                         default=0.999,
                         help='Decay rate for exponential moving average of parameters.')
+    parser.add_argument('--amp',
+                        type=bool,
+                        default=True,
+                        help='Whether to use Automatic Mixed Precision.')
+    parser.add_argument('--optim_set_to_none',
+                        type=bool,
+                        default=False,
+                        help='Whether to use set_to_none option in optimizer.')
 
     args = parser.parse_args()
 
@@ -251,7 +259,11 @@ def add_train_test_args(parser):
                         default=False,
                         help='Whether to use QANet.')
     # parser.add_argument('--emb_size',
-    #                     type=bool,
+    #                     type=int,
     #                     default=364,
     #                     help='Size of the embedding layer of QANet')
+    parser.add_argument('--project',
+                        type=bool,
+                        default=True,
+                        help='Whether to project the BiDAF attention layer to a smaller dimension.')
 
