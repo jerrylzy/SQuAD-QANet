@@ -26,7 +26,8 @@ class InputEmbedding(nn.Module):
     def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob):
         super(InputEmbedding, self).__init__()
         self.drop_prob = drop_prob
-        self.char_embed = nn.Embedding.from_pretrained(char_vectors)
+        # vocab size, char emb dim
+        self.char_embed = nn.Embedding.from_pretrained(word_vectors, freeze=False, padding_idx=0)
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
         self.proj = nn.Linear(word_vectors.size(1) + char_vectors.size(1) * self.CHAR_LIMIT, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
@@ -34,7 +35,7 @@ class InputEmbedding(nn.Module):
     def forward(self, w_idx, c_idx):
         # (batch_size, seq_len, word_embed_size)
         word_emb = self.word_embed(w_idx)
-        # (batch_size, seq_len, char_limit, char_embed_size)
+        # (N batch_size, C seq_len, H char_limit, W char_embed_size)
         char_emb = self.char_embed(c_idx)
         # (batch_size, seq_len, embed_size)
         emb = torch.cat((word_emb, char_emb.view(
