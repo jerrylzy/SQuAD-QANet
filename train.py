@@ -37,11 +37,11 @@ def main(args):
     args.batch_size *= max(1, len(args.gpu_ids))
 
     # Set random seed
-    log.info(f'Using random seed {args.seed}...')
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
+    # log.info(f'Using random seed {args.seed}...')
+    # random.seed(args.seed)
+    # np.random.seed(args.seed)
+    # torch.manual_seed(args.seed)
+    # torch.cuda.manual_seed_all(args.seed)
 
     # Get embeddings
     log.info('Loading embeddings...')
@@ -83,8 +83,7 @@ def main(args):
         ema = util.EMA(model, 0.9999)
     else:
         ema = util.EMA(model, args.ema_decay)
-        optimizer = optim.Adadelta(model.parameters(), args.lr,
-                               weight_decay=args.l2_wd)
+        optimizer = optim.Adadelta(model.parameters(), args.lr, weight_decay=args.l2_wd)
 
     scheduler = sched.LambdaLR(optimizer, lambda epoch: 1)  # Constant LR
 
@@ -113,6 +112,34 @@ def main(args):
 
     # scheduler = sched.StepLR(optimizer, step_size=5 * len(train_dataset) // args.batch_size,
     #                          gamma=args.lr_decay)  # Decay LR every 5 epochs. Decrease by 10%
+
+    def eval_and_save():
+        # Evaluate and save checkpoint
+        log.info(f'Evaluating at step {step}...')
+        ema.assign(model)
+        results, pred_dict = evaluate(model, dev_loader, device,
+                                        args.dev_eval_file,
+                                        args.max_ans_len,
+                                        args.use_squad_v2)
+        saver.save(step, model, results[args.metric_name], device)
+        ema.resume(model)
+
+        # Log to console
+        results_str = ', '.join(
+            f'{k}: {v:05.2f}' for k, v in results.items())
+        log.info(f'Dev {results_str}')
+
+        # Log to TensorBoard
+        log.info('Visualizing in TensorBoard...')
+        for k, v in results.items():
+            tbx.add_scalar(f'dev/{k}', v, step)
+        util.visualize(tbx,
+                        pred_dict=pred_dict,
+                        eval_path=args.dev_eval_file,
+                        step=step,
+                        split='dev',
+                        num_visuals=args.num_visuals)
+
     while epoch != args.num_epochs:
         epoch += 1
         log.info(f'Starting epoch {epoch}...')
@@ -166,33 +193,8 @@ def main(args):
                 steps_till_eval -= batch_size
                 if steps_till_eval <= 0:
                     steps_till_eval = args.eval_steps
-
-                    # Evaluate and save checkpoint
-                    log.info(f'Evaluating at step {step}...')
-                    ema.assign(model)
-                    results, pred_dict = evaluate(model, dev_loader, device,
-                                                  args.dev_eval_file,
-                                                  args.max_ans_len,
-                                                  args.use_squad_v2)
-                    saver.save(step, model, results[args.metric_name], device)
-                    ema.resume(model)
-
-                    # Log to console
-                    results_str = ', '.join(
-                        f'{k}: {v:05.2f}' for k, v in results.items())
-                    log.info(f'Dev {results_str}')
-
-                    # Log to TensorBoard
-                    log.info('Visualizing in TensorBoard...')
-                    for k, v in results.items():
-                        tbx.add_scalar(f'dev/{k}', v, step)
-                    util.visualize(tbx,
-                                   pred_dict=pred_dict,
-                                   eval_path=args.dev_eval_file,
-                                   step=step,
-                                   split='dev',
-                                   num_visuals=args.num_visuals)
-
+                    eval_and_save()
+        eval_and_save()
 
 def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2):
     nll_meter = util.AverageMeter()
