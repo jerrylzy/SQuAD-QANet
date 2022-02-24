@@ -27,7 +27,7 @@ class InputEmbedding(nn.Module):
         super(InputEmbedding, self).__init__()
         self.drop_prob = drop_prob
         # vocab size, char emb dim
-        self.char_embed = nn.Embedding.from_pretrained(word_vectors, freeze=False, padding_idx=0)
+        self.char_embed = nn.Embedding.from_pretrained(char_vectors, freeze=False, padding_idx=0)
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
         self.proj = nn.Linear(word_vectors.size(1) + char_vectors.size(1) * self.CHAR_LIMIT, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
