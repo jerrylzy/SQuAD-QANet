@@ -79,7 +79,7 @@ def main(args):
 
     # Get optimizer and scheduler
     if args.qanet:
-        optimizer = optim.Adam(model.parameters(), 0.001, betas=(0.8, 0.999), eps=1e-7, weight_decay=3 * 1e-7)
+        optimizer = optim.Adam(model.parameters(), args.lr, betas=(0.8, 0.999), eps=1e-7, weight_decay=3 * 1e-7)
         ema = util.EMA(model, 0.9999)
     else:
         ema = util.EMA(model, args.ema_decay)
