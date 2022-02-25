@@ -7,6 +7,31 @@ from util import masked_softmax
 from layers import HighwayEncoder
 
 
+class DepthWiseSeparableConv(nn.Module):
+    """
+    Depth-wise Separable Convolution
+    """
+
+    def __init__(self, hidden_size, kernel_size=7):
+        super().__init__()
+        self.depth_conv = nn.Conv1d(in_channels=hidden_size,
+                                    out_channels=hidden_size,
+                                    kernel_size=kernel_size,
+                                    groups=hidden_size,
+                                    padding=kernel_size // 2,
+                                    bias=True)
+        self.point_conv = nn.Conv1d(in_channels=hidden_size,
+                                    out_channels=hidden_size,
+                                    kernel_size=1,
+                                    bias=True)
+
+    def forward(self, x):
+        depth = self.depth_conv(x.transpose(1, 2))
+        point = self.point_conv(depth).transpose(1, 2)
+
+        return F.relu(point)
+
+
 class InputEmbedding(nn.Module):
     # Character embedding size limit
     CHAR_LIMIT = 16
@@ -30,6 +55,11 @@ class InputEmbedding(nn.Module):
         vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
         self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
         nn.init.xavier_uniform_(self.char_embed.weight)
+        # self.char_conv = nn.Sequential(
+        #     DepthWiseSeparableConv(char_emb_dim, kernel_size=5),
+        #     nn.BatchNorm2d(self.CHAR_LIMIT)
+        # )
+        self.char_conv = DepthWiseSeparableConv(self.CHAR_LIMIT * char_emb_dim, kernel_size=5)
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
         self.proj = nn.Linear(word_vectors.size(1) + char_emb_dim * self.CHAR_LIMIT, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
@@ -37,11 +67,17 @@ class InputEmbedding(nn.Module):
     def forward(self, w_idx, c_idx):
         # (batch_size, seq_len, word_embed_size)
         word_emb = self.word_embed(w_idx)
-        # (N batch_size, C seq_len, H char_limit, W char_embed_size)
+        # (batch_size, seq_len, char_limit, char_embed_size)
         char_emb = self.char_embed(c_idx)
+        # (batch_size, seq_len, char_limit * char_embed_size)
+        char_emb = self.char_conv(char_emb.view(*char_emb.shape[:2], -1))
+        
+        # (N batch_size, H seq_len, C char_limit, W char_embed_size) -> (N, C, H, W)
+        # char_emb = self.char_embed(c_idx).transpose(1, 2).to(memory_format=torch.channels_last)
+        # char_emb = self.char_conv(char_emb).transpose(1, 2) # (batch_size, seq_len, char_limit, char_embed_size) 
+        
         # (batch_size, seq_len, embed_size)
-        emb = torch.cat((word_emb, char_emb.view(
-            *char_emb.shape[:2], -1)), dim=2)
+        emb = torch.cat((word_emb, char_emb), dim=2)
         emb = F.dropout(emb, self.drop_prob, self.training)
         emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
         emb = self.hwy(emb)   # (batch_size, seq_len, emb_size)
@@ -218,8 +254,9 @@ class EncoderBlock(nn.Module):
         return output
 
     def stochastic_depth_layer_dropout(self, layer):
-        assert layer >= 0
-        return self.drop_prob * layer / self.num_layers
+        # assert layer > 0
+        # return self.drop_prob * layer / self.num_layers
+        return self.drop_prob
 
 
 
