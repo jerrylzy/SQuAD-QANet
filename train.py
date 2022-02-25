@@ -87,7 +87,7 @@ def main(args):
 
     # scheduler = sched.LambdaLR(optimizer, lambda step: step / 1000.0 if step <= 1000 else 1)  # Constant LR
     # scheduler = sched.ExponentialLR(optimizer, gamma=-0.1)
-    scheduler = sched.CyclicLR(optimizer, base_lr=args.lr * 0.5, max_lr=args.lr * 1.5)
+    scheduler = sched.CyclicLR(optimizer, base_lr=args.lr * 0.5, max_lr=args.lr * 1.5, cycle_momentum=False)
 
     # Get data loader
     log.info('Building dataset...')
