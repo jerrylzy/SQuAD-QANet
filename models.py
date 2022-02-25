@@ -115,11 +115,11 @@ class QANet(nn.Module):
         super().__init__()
 
         # Dimension of the embedding layer output.
-        self.emb = qanet_layers.InputEmbedding(char_vectors=char_vectors,
-                                               word_vectors=word_vectors,
-                                               hidden_size=hidden_size,
-                                               drop_prob=drop_prob)
-        
+        self.emb = layers.Embedding(char_vectors=char_vectors,
+                                    word_vectors=word_vectors,
+                                    hidden_size=hidden_size,
+                                    drop_prob=drop_prob)
+
         self.enc = qanet_layers.EncoderBlock(
             hidden_size=hidden_size,
             num_heads=8,
@@ -158,7 +158,7 @@ class QANet(nn.Module):
 
         att = self.att(c_enc, q_enc,
                        c_mask, q_mask)    # (batch_size, c_len, 4 * hidden_size)
-        
+
         # TODO: Remove. Test projection with less size
         att = self.mod_proj(att) if self.mod_proj != None else att
 

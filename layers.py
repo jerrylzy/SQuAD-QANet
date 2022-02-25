@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+# from qanet_layers import DepthWiseSeparableConv2D
 from util import masked_softmax
 
 
@@ -31,10 +32,11 @@ class Embedding(nn.Module):
     def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob):
         super(Embedding, self).__init__()
         self.drop_prob = drop_prob
-        
+
         vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
         self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
         nn.init.xavier_uniform_(self.char_embed.weight)
+        # self.char_conv = DepthWiseSeparableConv2D(char_emb_dim, kernel_size=5)
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
         self.proj = nn.Linear(word_vectors.size(1) + char_vectors.size(1) * self.CHAR_LIMIT, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
@@ -143,7 +145,7 @@ class PositionalEncoding(nn.Module):
         pe[:, :, 0::2] = torch.sin(index)
         pe[:, :, 1::2] = torch.cos(index)
         self.register_buffer('pe', pe)
-    
+
     def forward(self, x):
         # x.shape = batch size, sequence size, embedding dimension
         output = self.dropout(x + self.pe[:, :x.shape[1], :])

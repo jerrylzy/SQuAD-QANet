@@ -4,10 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from util import masked_softmax
-from layers import HighwayEncoder
 
 
-class DepthWiseSeparableConv(nn.Module):
+class DepthWiseSeparableConv1D(nn.Module):
     """
     Depth-wise Separable Convolution
     """
@@ -32,57 +31,57 @@ class DepthWiseSeparableConv(nn.Module):
         return F.relu(point)
 
 
-class InputEmbedding(nn.Module):
-    # Character embedding size limit
-    CHAR_LIMIT = 16
+# class InputEmbedding(nn.Module):
+#     # Character embedding size limit
+#     CHAR_LIMIT = 16
 
-    """Embedding layer used by BiDAF
+#     """Embedding layer used by BiDAF
 
-    Char- and word-level embeddings are further refined using a 2-layer Highway Encoder
-    (see `HighwayEncoder` class for details).
+#     Char- and word-level embeddings are further refined using a 2-layer Highway Encoder
+#     (see `HighwayEncoder` class for details).
 
-    Args:
-        char_vectors (torch.Tensor): Pre-trained char vectors.
-        word_vectors (torch.Tensor): Pre-trained word vectors.
-        emb_size (int): Size of embedding.
-        drop_prob (float): Probability of zero-ing out activations
-    """
+#     Args:
+#         char_vectors (torch.Tensor): Pre-trained char vectors.
+#         word_vectors (torch.Tensor): Pre-trained word vectors.
+#         emb_size (int): Size of embedding.
+#         drop_prob (float): Probability of zero-ing out activations
+#     """
 
-    def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob):
-        super(InputEmbedding, self).__init__()
-        self.drop_prob = drop_prob
+#     def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob):
+#         super(InputEmbedding, self).__init__()
+#         self.drop_prob = drop_prob
 
-        vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
-        self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
-        nn.init.xavier_uniform_(self.char_embed.weight)
-        # self.char_conv = nn.Sequential(
-        #     DepthWiseSeparableConv(char_emb_dim, kernel_size=5),
-        #     nn.BatchNorm2d(self.CHAR_LIMIT)
-        # )
-        self.char_conv = DepthWiseSeparableConv(self.CHAR_LIMIT * char_emb_dim, kernel_size=5)
-        self.word_embed = nn.Embedding.from_pretrained(word_vectors)
-        self.proj = nn.Linear(word_vectors.size(1) + char_emb_dim * self.CHAR_LIMIT, hidden_size, bias=False)
-        self.hwy = HighwayEncoder(2, hidden_size)
+#         vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
+#         self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
+#         nn.init.xavier_uniform_(self.char_embed.weight)
+#         # self.char_conv = nn.Sequential(
+#         #     DepthWiseSeparableConv(char_emb_dim, kernel_size=5),
+#         #     nn.BatchNorm2d(self.CHAR_LIMIT)
+#         # )
+#         self.char_conv = DepthWiseSeparableConv(self.CHAR_LIMIT * char_emb_dim, kernel_size=5)
+#         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
+#         self.proj = nn.Linear(word_vectors.size(1) + char_emb_dim * self.CHAR_LIMIT, hidden_size, bias=False)
+#         self.hwy = HighwayEncoder(2, hidden_size)
 
-    def forward(self, w_idx, c_idx):
-        # (batch_size, seq_len, word_embed_size)
-        word_emb = self.word_embed(w_idx)
-        # (batch_size, seq_len, char_limit, char_embed_size)
-        char_emb = self.char_embed(c_idx)
-        # (batch_size, seq_len, char_limit * char_embed_size)
-        char_emb = self.char_conv(char_emb.view(*char_emb.shape[:2], -1))
-        
-        # (N batch_size, H seq_len, C char_limit, W char_embed_size) -> (N, C, H, W)
-        # char_emb = self.char_embed(c_idx).transpose(1, 2).to(memory_format=torch.channels_last)
-        # char_emb = self.char_conv(char_emb).transpose(1, 2) # (batch_size, seq_len, char_limit, char_embed_size) 
-        
-        # (batch_size, seq_len, embed_size)
-        emb = torch.cat((word_emb, char_emb), dim=2)
-        emb = F.dropout(emb, self.drop_prob, self.training)
-        emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
-        emb = self.hwy(emb)   # (batch_size, seq_len, emb_size)
+#     def forward(self, w_idx, c_idx):
+#         # (batch_size, seq_len, word_embed_size)
+#         word_emb = self.word_embed(w_idx)
+#         # (batch_size, seq_len, char_limit, char_embed_size)
+#         char_emb = self.char_embed(c_idx)
+#         # (batch_size, seq_len, char_limit * char_embed_size)
+#         char_emb = self.char_conv(char_emb.view(*char_emb.shape[:2], -1))
 
-        return emb
+#         # (N batch_size, H seq_len, C char_limit, W char_embed_size) -> (N, C, H, W)
+#         # char_emb = self.char_embed(c_idx).transpose(1, 2).to(memory_format=torch.channels_last)
+#         # char_emb = self.char_conv(char_emb).transpose(1, 2) # (batch_size, seq_len, char_limit, char_embed_size)
+
+#         # (batch_size, seq_len, embed_size)
+#         emb = torch.cat((word_emb, char_emb), dim=2)
+#         emb = F.dropout(emb, self.drop_prob, self.training)
+#         emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
+#         emb = self.hwy(emb)   # (batch_size, seq_len, emb_size)
+
+#         return emb
 
 
 class PositionalEncoding(nn.Module):
@@ -93,7 +92,7 @@ class PositionalEncoding(nn.Module):
     def __init__(self, emb_size, dropout=0.1, max_len=1024):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
-        # assert hidden_size % 2 == 0
+        assert emb_size % 2 == 0
 
         pe = torch.zeros(1, max_len, emb_size)
         i = torch.arange(0, max_len).repeat((emb_size // 2, 1)).T
@@ -116,7 +115,7 @@ class MultiHeadAttention(nn.Module):
 
     def __init__(self, hidden_size, num_heads, dropout=0.1):
         super().__init__()
-        # assert hidden_size % num_heads == 0
+        assert hidden_size % num_heads == 0
         self.key = nn.Linear(hidden_size, hidden_size)
         self.query = nn.Linear(hidden_size, hidden_size)
         self.value = nn.Linear(hidden_size, hidden_size)
@@ -184,9 +183,9 @@ class FeedForward(nn.Module):
         return F.relu(self.linear(x))
 
 
-class DepthWiseSeparableConv(nn.Module):
+class DepthWiseSeparableConv1D(nn.Module):
     """
-    Depth-wise Separable Convolution
+    Depth-wise Separable Convolution 1D
     """
 
     def __init__(self, hidden_size, kernel_size=7):
@@ -206,7 +205,32 @@ class DepthWiseSeparableConv(nn.Module):
         depth = self.depth_conv(x.transpose(1, 2))
         point = self.point_conv(depth).transpose(1, 2)
 
-        return F.relu(point)
+        return point
+
+
+# class DepthWiseSeparableConv2D(nn.Module):
+#     """
+#     Depth-wise Separable Convolution 2D
+#     """
+
+#     def __init__(self, hidden_size, kernel_size=7, bias=True):
+#         super().__init__()
+#         self.depth_conv = nn.Conv2d(in_channels=hidden_size,
+#                                     out_channels=hidden_size,
+#                                     kernel_size=kernel_size,
+#                                     groups=hidden_size,
+#                                     padding=kernel_size // 2,
+#                                     bias=bias)
+#         self.point_conv = nn.Conv2d(in_channels=hidden_size,
+#                                     out_channels=hidden_size,
+#                                     kernel_size=1,
+#                                     bias=bias)
+
+#     def forward(self, x):
+#         depth = self.depth_conv(x)
+#         point = self.point_conv(depth)
+
+#         return point
 
 
 class EncoderBlock(nn.Module):
@@ -228,7 +252,7 @@ class EncoderBlock(nn.Module):
         # Conv
         self.conv = nn.Sequential(
             *[ResidualBlock(
-                DepthWiseSeparableConv(hidden_size, kernel_size),
+                DepthWiseSeparableConv1D(hidden_size, kernel_size),
                 hidden_size=hidden_size,
                 residual_dropout_p=self.stochastic_depth_layer_dropout(2 + i)) for i in range(num_conv_layers)])
 
