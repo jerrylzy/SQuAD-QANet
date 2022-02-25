@@ -132,8 +132,8 @@ def get_train_args():
                         help='Maximum gradient norm for gradient clipping.')
     parser.add_argument('--seed',
                         type=int,
-                        default=224,
-                        help='Random seed for reproducibility.')
+                        default=0,
+                        help='Random seed for reproducibility. 0 means not using a fixed seed.')
     parser.add_argument('--ema_decay',
                         type=float,
                         default=0.999,

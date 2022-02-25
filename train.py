@@ -36,12 +36,13 @@ def main(args):
     log.info(f'Args: {dumps(vars(args), indent=4, sort_keys=True)}')
     args.batch_size *= max(1, len(args.gpu_ids))
 
-    # Set random seed
-    log.info(f'Using random seed {args.seed}...')
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
+    if args.seed != 0:
+        # Set random seed
+        log.info(f'Using random seed {args.seed}...')
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
 
     # Get embeddings
     log.info('Loading embeddings...')
