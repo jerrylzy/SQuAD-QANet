@@ -50,7 +50,7 @@ class Embedding(nn.Module):
         char_emb = self.char_embed(c_idx)   # (batch_size, seq_len, char_limit, char_embed_size)
         bs, sl, _, char_emb_dim = char_emb.shape
         char_emb = self.char_conv(char_emb.view(-1, *char_emb.shape[2:]))
-        char_emb = char_emb.max(dim=2)[0].view(bs, sl, char_emb_dim)
+        char_emb = char_emb.max(dim=1)[0].view(bs, sl, char_emb_dim)
         emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
         emb = F.dropout(emb, self.drop_prob, self.training)
         emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
