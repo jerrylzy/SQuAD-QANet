@@ -86,7 +86,7 @@ def main(args):
         ema = util.EMA(model, args.ema_decay)
         optimizer = optim.Adadelta(model.parameters(), args.lr, weight_decay=args.l2_wd)
 
-    scheduler = sched.LambdaLR(optimizer, lambda step: 1 - 0.99999 ** step if step <= 1e6 else 1)  # Constant LR
+    scheduler = sched.LambdaLR(optimizer, lambda step: 1 - 0.9 ** step if step <= 1e3 else 1)  # Constant LR
     # scheduler = sched.ExponentialLR(optimizer, gamma=-0.1)
     # scheduler = sched.CyclicLR(optimizer, base_lr=args.lr * 0.5, max_lr=args.lr * 1.5, cycle_momentum=False)
 
