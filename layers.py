@@ -42,7 +42,7 @@ class Embedding(nn.Module):
         #     nn.ReLU()
         # )
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
-        self.proj = nn.Linear(word_vectors.size(1) + char_vectors.size(1), hidden_size, bias=False)
+        self.proj = nn.Linear(word_vectors.size(1) + self.CHAR_LIMIT * char_vectors.size(1), hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, w_idx, c_idx):
