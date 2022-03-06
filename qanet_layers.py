@@ -229,8 +229,8 @@ class EncoderBlock(nn.Module):
 
     def stochastic_depth_layer_dropout(self, layer):
         # assert layer > 0
-        # return self.drop_prob * layer / self.num_layers
-        return self.drop_prob
+        return self.drop_prob * layer / self.num_layers
+        # return self.drop_prob
 
 
 class StackedEmbeddingEncoderBlock(nn.Module):
