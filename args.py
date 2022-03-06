@@ -142,6 +142,10 @@ def get_train_args():
                         type=bool,
                         default=True,
                         help='Whether to use Automatic Mixed Precision.')
+    parser.add_argument('--deepspeed_config',
+                        type=str,
+                        default='./deepspeed_config.json',
+                        help='Config of deep speed.')
     parser.add_argument('--optim_set_to_none',
                         type=bool,
                         default=False,
