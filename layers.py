@@ -35,7 +35,7 @@ class Embedding(nn.Module):
 
         vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
         self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
-        self.char_embed.weight.data.normal_(mean=0.0, std=0.02)
+        # self.char_embed.weight.data.normal_(mean=0.0, std=0.02)
         self.char_conv = nn.Sequential(
             nn.Conv1d(self.CHAR_LIMIT, 100, 5, padding=2), # Based on BiDAF's paper
             nn.Dropout(drop_prob * 0.5),
