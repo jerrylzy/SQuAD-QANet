@@ -36,11 +36,11 @@ class Embedding(nn.Module):
         vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
         self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
         # self.char_embed.weight.data.normal_(mean=0.0, std=0.02)
-        self.char_conv = nn.Sequential(
-            nn.Conv1d(self.CHAR_LIMIT, 100, 5, padding=2), # Based on BiDAF's paper
-            nn.Dropout(drop_prob * 0.5),
-            nn.ReLU()
-        )
+        # self.char_conv = nn.Sequential(
+        #     nn.Conv1d(self.CHAR_LIMIT, 100, 5, padding=2), # Based on BiDAF's paper
+        #     nn.Dropout(drop_prob * 0.5),
+        #     nn.ReLU()
+        # )
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
         self.proj = nn.Linear(word_vectors.size(1) + char_vectors.size(1), hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
@@ -48,10 +48,11 @@ class Embedding(nn.Module):
     def forward(self, w_idx, c_idx):
         word_emb = self.word_embed(w_idx)   # (batch_size, seq_len, word_embed_size)
         char_emb = self.char_embed(c_idx)   # (batch_size, seq_len, char_limit, char_embed_size)
-        bs, sl, _, char_emb_dim = char_emb.shape
-        char_emb = self.char_conv(char_emb.view(-1, *char_emb.shape[2:]))
-        char_emb = char_emb.max(dim=1)[0].view(bs, sl, char_emb_dim)
-        emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
+        # bs, sl, _, char_emb_dim = char_emb.shape
+        # char_emb = self.char_conv(char_emb.view(-1, *char_emb.shape[2:]))
+        # char_emb = char_emb.max(dim=1)[0].view(bs, sl, char_emb_dim)
+        # emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
+        emb = torch.cat((word_emb, char_emb.view((*char_emb.shape[:2], -1))), dim=2)   # (batch_size, seq_len, embed_size)
         emb = F.dropout(emb, self.drop_prob, self.training)
         emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
         emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
