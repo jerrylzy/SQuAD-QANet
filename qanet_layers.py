@@ -177,36 +177,11 @@ class FeedForward(nn.Module):
 
     def __init__(self, hidden_size):
         super().__init__()
-        self.linear = nn.Linear(hidden_size, hidden_size)
+        self.l1 = nn.Linear(hidden_size, hidden_size)
+        self.l2 = nn.Linear(hidden_size, hidden_size)
 
     def forward(self, x):
-        return F.relu(self.linear(x))
-
-
-# class DepthWiseSeparableConv2D(nn.Module):
-#     """
-#     Depth-wise Separable Convolution 2D
-#     """
-
-#     def __init__(self, hidden_size, kernel_size=7, bias=True):
-#         super().__init__()
-#         self.depth_conv = nn.Conv2d(in_channels=hidden_size,
-#                                     out_channels=hidden_size,
-#                                     kernel_size=kernel_size,
-#                                     groups=hidden_size,
-#                                     padding=kernel_size // 2,
-#                                     bias=bias)
-#         self.point_conv = nn.Conv2d(in_channels=hidden_size,
-#                                     out_channels=hidden_size,
-#                                     kernel_size=1,
-#                                     bias=bias)
-
-#     def forward(self, x):
-#         depth = self.depth_conv(x)
-#         point = self.point_conv(depth)
-
-#         return point
-
+        return self.l2(F.relu(self.l1(x)))
 
 class EncoderBlock(nn.Module):
     """
@@ -256,7 +231,6 @@ class EncoderBlock(nn.Module):
         # assert layer > 0
         # return self.drop_prob * layer / self.num_layers
         return self.drop_prob
-
 
 
 class StackedEmbeddingEncoderBlock(nn.Module):
