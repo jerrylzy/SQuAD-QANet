@@ -130,7 +130,7 @@ class QANet(nn.Module):
         self.att = layers.BiDAFAttention(hidden_size=hidden_size,
                                          drop_prob=drop_prob)
 
-        self.mod_proj = nn.Linear(4 * hidden_size, hidden_size) if project else None
+        self.mod_proj = nn.Conv1d(4 * hidden_size, hidden_size, 1) if project else None
 
         self.mod = qanet_layers.StackedEmbeddingEncoderBlock(
             hidden_size=hidden_size if project else 4 * hidden_size,
@@ -160,7 +160,7 @@ class QANet(nn.Module):
                        c_mask, q_mask)    # (batch_size, c_len, 4 * hidden_size)
 
         # TODO: Remove. Test projection with less size
-        att = self.mod_proj(att) if self.mod_proj != None else att
+        att = self.mod_proj(att.transpose(1, 2)).transpose(1, 2) if self.mod_proj != None else att
 
         # stackd encoder blocks share weights among its three repetitions
         att_emb_1 = self.mod(att)
