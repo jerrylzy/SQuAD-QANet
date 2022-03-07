@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from layers import FeedForward, ResidualBlock
 from util import masked_softmax
 
 
@@ -29,59 +30,6 @@ class DepthWiseSeparableConv1D(nn.Module):
         point = self.point_conv(depth).transpose(1, 2)
 
         return F.relu(point)
-
-
-# class InputEmbedding(nn.Module):
-#     # Character embedding size limit
-#     CHAR_LIMIT = 16
-
-#     """Embedding layer used by BiDAF
-
-#     Char- and word-level embeddings are further refined using a 2-layer Highway Encoder
-#     (see `HighwayEncoder` class for details).
-
-#     Args:
-#         char_vectors (torch.Tensor): Pre-trained char vectors.
-#         word_vectors (torch.Tensor): Pre-trained word vectors.
-#         emb_size (int): Size of embedding.
-#         drop_prob (float): Probability of zero-ing out activations
-#     """
-
-#     def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob):
-#         super(InputEmbedding, self).__init__()
-#         self.drop_prob = drop_prob
-
-#         vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
-#         self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
-#         nn.init.xavier_uniform_(self.char_embed.weight)
-#         # self.char_conv = nn.Sequential(
-#         #     DepthWiseSeparableConv(char_emb_dim, kernel_size=5),
-#         #     nn.BatchNorm2d(self.CHAR_LIMIT)
-#         # )
-#         self.char_conv = DepthWiseSeparableConv(self.CHAR_LIMIT * char_emb_dim, kernel_size=5)
-#         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
-#         self.proj = nn.Linear(word_vectors.size(1) + char_emb_dim * self.CHAR_LIMIT, hidden_size, bias=False)
-#         self.hwy = HighwayEncoder(2, hidden_size)
-
-#     def forward(self, w_idx, c_idx):
-#         # (batch_size, seq_len, word_embed_size)
-#         word_emb = self.word_embed(w_idx)
-#         # (batch_size, seq_len, char_limit, char_embed_size)
-#         char_emb = self.char_embed(c_idx)
-#         # (batch_size, seq_len, char_limit * char_embed_size)
-#         char_emb = self.char_conv(char_emb.view(*char_emb.shape[:2], -1))
-
-#         # (N batch_size, H seq_len, C char_limit, W char_embed_size) -> (N, C, H, W)
-#         # char_emb = self.char_embed(c_idx).transpose(1, 2).to(memory_format=torch.channels_last)
-#         # char_emb = self.char_conv(char_emb).transpose(1, 2) # (batch_size, seq_len, char_limit, char_embed_size)
-
-#         # (batch_size, seq_len, embed_size)
-#         emb = torch.cat((word_emb, char_emb), dim=2)
-#         emb = F.dropout(emb, self.drop_prob, self.training)
-#         emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
-#         emb = self.hwy(emb)   # (batch_size, seq_len, emb_size)
-
-#         return emb
 
 
 class PositionalEncoding(nn.Module):
@@ -130,58 +78,18 @@ class MultiHeadAttention(nn.Module):
         # batch size, sequence size, embedding dimension
         N, S, _ = x.shape
         H = self.num_heads
-        q = self.query(x).view(N, S, H, self.d_k).to(memory_format=torch.channels_last).transpose(
-            1, 2)  # (N, H, S, dk)
-        k = self.key(x).view(N, S, H, self.d_k).to(memory_format=torch.channels_last).transpose(
-            1, 2)     # (N, H, S, dk)
-        v = self.value(x).view(N, S, H, self.d_k).to(memory_format=torch.channels_last).transpose(
-            1, 2)  # (N, H, S, dk)
+        q = self.query(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
+        k = self.key(x).view(N, S, H, self.d_k).transpose(1, 2)     # (N, H, S, dk)
+        v = self.value(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
 
-        att = torch.matmul(q, k.transpose(2, 3)).to(
-            memory_format=torch.channels_last) / self.scaled_dk  # Scaled Dot Product Attention
+        att = torch.matmul(q, k.transpose(2, 3)) / self.scaled_dk  # Scaled Dot Product Attention
 
-        att = self.dropout(self.softmax(att)).to(
-            memory_format=torch.channels_last)  # (N, H, S, T)
+        att = self.dropout(self.softmax(att))  # (N, H, S, T)
 
-        y = torch.matmul(att, v).to(memory_format=torch.channels_last).transpose(
-            1, 2).contiguous().view(N, S, -1)
+        y = torch.matmul(att, v).transpose(1, 2).contiguous().view(N, S, -1)
         output = self.proj(y)
         return output
 
-
-class ResidualBlock(nn.Module):
-    """
-    Residual Block
-    """
-
-    def __init__(self, module, hidden_size, residual_dropout_p=0.1):
-        super().__init__()
-        self.module = module
-        self.layer_norm = nn.LayerNorm(hidden_size)
-        self.residual_dropout = nn.Dropout(residual_dropout_p)
-
-    def forward(self, x):
-        # Normalize
-        input = self.layer_norm(x)
-        # Apply module
-        output = self.residual_dropout(self.module(input))
-        # Add residual connection
-        output = output + x
-        return output
-
-
-class FeedForward(nn.Module):
-    """
-    Feed Forward Layer
-    """
-
-    def __init__(self, hidden_size):
-        super().__init__()
-        self.l1 = nn.Linear(hidden_size, hidden_size)
-        self.l2 = nn.Linear(hidden_size, hidden_size)
-
-    def forward(self, x):
-        return self.l2(F.relu(self.l1(x)))
 
 class EncoderBlock(nn.Module):
     """
@@ -213,8 +121,8 @@ class EncoderBlock(nn.Module):
             residual_dropout_p=self.stochastic_depth_layer_dropout(num_conv_layers + 2))
 
         # Feed Forward
-        self.ff = ResidualBlock(FeedForward(
-            hidden_size), hidden_size=hidden_size, residual_dropout_p=dropout)
+        self.ff = ResidualBlock(
+            FeedForward(hidden_size), hidden_size=hidden_size, residual_dropout_p=dropout)
 
     def forward(self, x):
         # Add positional encoding
@@ -273,9 +181,11 @@ class QANetOutput(nn.Module):
         self.att_linear_2 = nn.Linear(2 * hidden_size, 1)
 
     def forward(self, emb_1, emb_2, emb_3, mask):
+        # Shapes: (batch_size, seq_len, 1)
         logits_1 = self.att_linear_1(torch.cat((emb_1, emb_2), dim=2))
         logits_2 = self.att_linear_2(torch.cat((emb_1, emb_3), dim=2))
 
+        # Shapes: (batch_size, seq_len)
         log_p1 = masked_softmax(logits_1.squeeze(), mask, log_softmax=True)
         log_p2 = masked_softmax(logits_2.squeeze(), mask, log_softmax=True)
 

@@ -13,6 +13,40 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 # from qanet_layers import DepthWiseSeparableConv2D
 from util import masked_softmax
 
+class ResidualBlock(nn.Module):
+    """
+    Residual Block
+    """
+
+    def __init__(self, module, hidden_size, residual_dropout_p=0.1):
+        super().__init__()
+        self.module = module
+        self.layer_norm = nn.LayerNorm(hidden_size)
+        self.residual_dropout = nn.Dropout(residual_dropout_p)
+
+    def forward(self, x):
+        # Normalize
+        input = self.layer_norm(x)
+        # Apply module
+        output = self.residual_dropout(self.module(input))
+        # Add residual connection
+        output = output + x
+        return output
+
+
+class FeedForward(nn.Module):
+    """
+    Feed Forward Layer
+    """
+
+    def __init__(self, hidden_size, input_size = None, output_size = None):
+        super().__init__()
+        self.l1 = nn.Linear(input_size if input_size != None else hidden_size, hidden_size)
+        self.l2 = nn.Linear(hidden_size, output_size if output_size != None else hidden_size)
+
+    def forward(self, x):
+        return self.l2(F.relu(self.l1(x)))
+
 
 class Embedding(nn.Module):
     # Character embedding size limit
@@ -36,26 +70,48 @@ class Embedding(nn.Module):
         vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
         self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
         # self.char_embed.weight.data.normal_(mean=0.0, std=0.02)
+
+        # (batch_size, char_embed_size, seq_len, char_limit)
         self.char_conv = nn.Sequential(
-            nn.Conv2d(200, 100, (1, 5), padding=0), # Based on BiDAF's paper
+            nn.Conv2d(char_emb_dim, char_emb_dim, (1, 5)), # Based on BiDAF's paper
             nn.Dropout(drop_prob * 0.5),
             nn.ReLU()
         )
+        # self.char_att = SelfAttention(self.CHAR_LIMIT * char_emb_dim, num_heads=8, dropout=drop_prob)
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
-        self.proj = nn.Linear(word_vectors.size(1) + 100, hidden_size, bias=False)
-        self.hwy = HighwayEncoder(2, hidden_size)
+        # self.proj = nn.Linear(word_vectors.size(1) + self.CHAR_LIMIT * char_emb_dim, hidden_size)
+        # self.proj = ResidualBlock(
+        #     FeedForward(hidden_size), hidden_size=hidden_size, residual_dropout_p=drop_prob)
+        # emb_dim = word_vectors.size(1) + self.CHAR_LIMIT * char_emb_dim
+        emb_dim = word_vectors.size(1) + char_emb_dim
+
+        # self.proj = nn.Sequential(
+        #     ResidualBlock(FeedForward(combined_emb_dim), hidden_size=combined_emb_dim, residual_dropout_p=drop_prob),
+        #     nn.Linear(combined_emb_dim, hidden_size),
+        # )
+
+        # self.proj = nn.Linear(word_vectors.size(1) + char_emb_dim, hidden_size)
+        # self.proj = ResidualBlock(
+        #     FeedForward(hidden_size), hidden_size=hidden_size, residual_dropout_p=drop_prob)
+        self.hwy = HighwayEncoder(2, emb_dim)
+        self.proj = nn.Conv1d(emb_dim, hidden_size, 1)
 
     def forward(self, w_idx, c_idx):
         word_emb = self.word_embed(w_idx)   # (batch_size, seq_len, word_embed_size)
         char_emb = self.char_embed(c_idx)   # (batch_size, seq_len, char_limit, char_embed_size)
+
         # bs, sl, _, char_emb_dim = char_emb.shape
         char_emb = self.char_conv(char_emb.permute(0, 3, 1, 2)) # (batch_size, char_embed_size, seq_len, char_limit)
         char_emb = char_emb.max(dim=3)[0].permute(0, 2, 1) # (batch_size, seq_len, embed_size)
         emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
-        # emb = torch.cat((word_emb, char_emb.view((*char_emb.shape[:2], -1))), dim=2)   # (batch_size, seq_len, embed_size)
+
+        # char_emb = char_emb.view((*char_emb.shape[:2], -1))
+        # char_emb = self.char_att(char_emb)
+        # emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
+
         emb = F.dropout(emb, self.drop_prob, self.training)
-        emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
-        emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
+        emb = self.hwy(emb)   # (batch_size, seq_len, embed_size)
+        emb = self.proj(emb.transpose(1, 2)).transpose(1, 2)  # (batch_size, seq_len, hidden_size)
 
         return emb
 
@@ -166,7 +222,7 @@ class MultiHeadAttention(nn.Module):
     """
     def __init__(self, hidden_size, num_heads, dropout=0.1):
         super(MultiHeadAttention, self).__init__()
-        # assert hidden_size % num_heads == 0
+        assert hidden_size % num_heads == 0
         self.key = nn.Linear(hidden_size, hidden_size)
         self.query = nn.Linear(hidden_size, hidden_size)
         self.value = nn.Linear(hidden_size, hidden_size)
@@ -222,7 +278,7 @@ class SelfAttention(nn.Module):
         att = self.layer_norm_1(att + x)
         # FF
         ff = F.relu(self.linear_1(att))
-        ff = F.relu(self.linear_2(ff))
+        ff = self.linear_2(ff)
         ff = self.residual_dropout_2(ff)
         output = self.layer_norm_2(ff + att)
         return output
