@@ -128,7 +128,7 @@ def get_train_args():
                         help='Maximum number of checkpoints to keep on disk.')
     parser.add_argument('--max_grad_norm',
                         type=float,
-                        default=5.0,
+                        default=2.0,
                         help='Maximum gradient norm for gradient clipping.')
     parser.add_argument('--seed',
                         type=int,
