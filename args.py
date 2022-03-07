@@ -258,10 +258,10 @@ def add_train_test_args(parser):
                         type=bool,
                         default=False,
                         help='Whether to use QANet.')
-    # parser.add_argument('--emb_size',
-    #                     type=int,
-    #                     default=364,
-    #                     help='Size of the embedding layer of QANet')
+    parser.add_argument('--use_char_cnn',
+                        type=bool,
+                        default=True,
+                        help='Whether to use character-level CNN in the embedding layer.')
     parser.add_argument('--project',
                         type=bool,
                         default=False,

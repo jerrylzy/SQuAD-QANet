@@ -56,12 +56,14 @@ def main(args):
                       word_vectors=word_vectors,
                       hidden_size=args.hidden_size,
                       drop_prob=args.drop_prob,
-                      project=args.project)
+                      project=args.project,
+                      use_char_cnn=args.use_char_cnn)
     else:
         model = BiDAF(char_vectors=char_vectors,
                       word_vectors=word_vectors,
                       hidden_size=args.hidden_size,
-                      drop_prob=args.drop_prob)
+                      drop_prob=args.drop_prob,
+                      use_char_cnn=args.use_char_cnn)
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_path:
         log.info(f'Loading checkpoint from {args.load_path}...')
@@ -82,11 +84,12 @@ def main(args):
     if args.qanet:
         optimizer = optim.Adam(model.parameters(), args.lr, betas=(0.8, 0.999), eps=1e-7, weight_decay=3 * 1e-7)
         ema = util.EMA(model, 0.9999)
+        scheduler = sched.LambdaLR(optimizer, lambda step: 1 - 0.9 ** step if step <= 1e3 else 1)  # Exp warmup, constant LR
     else:
         ema = util.EMA(model, args.ema_decay)
         optimizer = optim.Adadelta(model.parameters(), args.lr, weight_decay=args.l2_wd)
+        scheduler = sched.LambdaLR(optimizer, lambda step: 1)  # Constant LR
 
-    scheduler = sched.LambdaLR(optimizer, lambda step: 1 - 0.9 ** step if step <= 1e3 else 1)  # Constant LR
     # scheduler = sched.ExponentialLR(optimizer, gamma=-0.1)
     # scheduler = sched.CyclicLR(optimizer, base_lr=args.lr * 0.5, max_lr=args.lr * 1.5, cycle_momentum=False)
 
@@ -197,7 +200,7 @@ def main(args):
                 if steps_till_eval <= 0:
                     steps_till_eval = args.eval_steps
                     eval_and_save()
-        eval_and_save()
+        # eval_and_save()
 
 def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2):
     nll_meter = util.AverageMeter()

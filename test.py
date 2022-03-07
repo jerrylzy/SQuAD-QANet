@@ -48,11 +48,13 @@ def main(args):
         model = QANet(char_vectors=char_vectors,
                       word_vectors=word_vectors,
                       hidden_size=args.hidden_size,
-                      project=args.project)
+                      project=args.project,
+                      use_char_cnn=args.use_char_cnn)
     else:
         model = BiDAF(char_vectors=char_vectors,
                       word_vectors=word_vectors,
-                      hidden_size=args.hidden_size)
+                      hidden_size=args.hidden_size,
+                      use_char_cnn=args.use_char_cnn)
     model = nn.DataParallel(model, gpu_ids)
     log.info(f'Loading checkpoint from {args.load_path}...')
     model = util.load_model(model, args.load_path, gpu_ids, return_step=False)
