@@ -254,13 +254,15 @@ def add_train_test_args(parser):
                         type=str,
                         default=None,
                         help='Path to load as a model checkpoint.')
+    # TODO: Change to use parser action
+    # https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
     parser.add_argument('--qanet',
                         type=bool,
                         default=False,
                         help='Whether to use QANet.')
     parser.add_argument('--use_char_cnn',
                         type=bool,
-                        default=True,
+                        default=False,
                         help='Whether to use character-level CNN in the embedding layer.')
     parser.add_argument('--project',
                         type=bool,
