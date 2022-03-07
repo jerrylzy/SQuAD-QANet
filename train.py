@@ -200,7 +200,7 @@ def main(args):
                 if steps_till_eval <= 0:
                     steps_till_eval = args.eval_steps
                     eval_and_save()
-        # eval_and_save()
+        eval_and_save()
 
 def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2):
     nll_meter = util.AverageMeter()
