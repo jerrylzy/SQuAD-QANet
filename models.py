@@ -37,7 +37,8 @@ class BiDAF(nn.Module):
         self.emb = layers.Embedding(char_vectors=char_vectors,
                                     word_vectors=word_vectors,
                                     hidden_size=hidden_size,
-                                    drop_prob=drop_prob)
+                                    drop_prob=drop_prob,
+                                    use_char_cnn=False)
 
         self.enc = layers.RNNEncoder(input_size=hidden_size,
                                      hidden_size=hidden_size,
@@ -118,7 +119,8 @@ class QANet(nn.Module):
         self.emb = layers.Embedding(char_vectors=char_vectors,
                                     word_vectors=word_vectors,
                                     hidden_size=hidden_size,
-                                    drop_prob=drop_prob)
+                                    drop_prob=drop_prob,
+                                    use_char_cnn=False)
 
         self.enc = qanet_layers.EncoderBlock(
             hidden_size=hidden_size,
