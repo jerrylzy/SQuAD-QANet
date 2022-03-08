@@ -130,9 +130,13 @@ def get_train_args():
                         type=float,
                         default=2.0,
                         help='Maximum gradient norm for gradient clipping.')
+    parser.add_argument('--eval_after_epoch',
+                        type=bool,
+                        default=False,
+                        help='Whether to evaluate after each epoch.')
     parser.add_argument('--seed',
                         type=int,
-                        default=0,
+                        default=224,
                         help='Random seed for reproducibility. 0 means not using a fixed seed.')
     parser.add_argument('--ema_decay',
                         type=float,

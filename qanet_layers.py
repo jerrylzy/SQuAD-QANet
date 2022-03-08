@@ -19,11 +19,11 @@ class DepthWiseSeparableConv1D(nn.Module):
                                     kernel_size=kernel_size,
                                     groups=hidden_size,
                                     padding=kernel_size // 2,
-                                    bias=True)
+                                    bias=False)
         self.point_conv = nn.Conv1d(in_channels=hidden_size,
                                     out_channels=hidden_size,
                                     kernel_size=1,
-                                    bias=True)
+                                    bias=False)
 
     def forward(self, x):
         depth = self.depth_conv(x.transpose(1, 2))

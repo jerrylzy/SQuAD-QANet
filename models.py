@@ -134,7 +134,7 @@ class QANet(nn.Module):
         self.att = layers.BiDAFAttention(hidden_size=hidden_size,
                                          drop_prob=drop_prob)
 
-        self.mod_proj = nn.Conv1d(4 * hidden_size, hidden_size, 1) if project else None
+        self.mod_proj = nn.Conv1d(4 * hidden_size, hidden_size, 1, bias=False) if project else None
 
         self.mod = qanet_layers.StackedEmbeddingEncoderBlock(
             hidden_size=hidden_size if project else 4 * hidden_size,
