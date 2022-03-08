@@ -128,7 +128,7 @@ def get_train_args():
                         help='Maximum number of checkpoints to keep on disk.')
     parser.add_argument('--max_grad_norm',
                         type=float,
-                        default=2.0,
+                        default=5.0,
                         help='Maximum gradient norm for gradient clipping.')
     parser.add_argument('--eval_after_epoch',
                         type=bool,
@@ -144,7 +144,7 @@ def get_train_args():
                         help='Decay rate for exponential moving average of parameters.')
     parser.add_argument('--amp',
                         type=bool,
-                        default=True,
+                        default=False,
                         help='Whether to use Automatic Mixed Precision.')
     parser.add_argument('--optim_set_to_none',
                         type=bool,

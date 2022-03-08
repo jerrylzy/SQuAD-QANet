@@ -8,6 +8,7 @@ import layers
 import qanet_layers
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class BiDAF(nn.Module):
@@ -116,6 +117,7 @@ class QANet(nn.Module):
 
     def __init__(self, char_vectors, word_vectors, hidden_size=128, drop_prob=0., project=False, use_char_cnn=True):
         super().__init__()
+        self.drop_prob = drop_prob
 
         # Dimension of the embedding layer output.
         self.emb = layers.Embedding(char_vectors=char_vectors,
@@ -134,7 +136,7 @@ class QANet(nn.Module):
         self.att = layers.BiDAFAttention(hidden_size=hidden_size,
                                          drop_prob=drop_prob)
 
-        self.mod_proj = nn.Conv1d(4 * hidden_size, hidden_size, 1, bias=False) if project else None
+        self.mod_proj = layers.Conv1dLinear(4 * hidden_size, hidden_size, 1, bias=False) if project else None
 
         self.mod = qanet_layers.StackedEmbeddingEncoderBlock(
             hidden_size=hidden_size if project else 4 * hidden_size,
@@ -160,16 +162,16 @@ class QANet(nn.Module):
         c_enc = self.enc(c_emb)    # (batch_size, c_len, hidden_size)
         q_enc = self.enc(q_emb)    # (batch_size, q_len, hidden_size)
 
-        att = self.att(c_enc, q_enc,
-                       c_mask, q_mask)    # (batch_size, c_len, 4 * hidden_size)
+        att = self.att(c_enc, q_enc, c_mask, q_mask)    # (batch_size, c_len, 4 * hidden_size)
 
         # TODO: Remove. Test projection with less size
-        att = self.mod_proj(att.transpose(1, 2)).transpose(1, 2) if self.mod_proj != None else att
+        # att = self.mod_proj(att.transpose(1, 2)).transpose(1, 2) if self.mod_proj != None else att
+        att = self.mod_proj(att) if self.mod_proj != None else att
 
         # stackd encoder blocks share weights among its three repetitions
-        att_emb_1 = self.mod(att)
-        att_emb_2 = self.mod(att_emb_1)
-        att_emb_3 = self.mod(att_emb_2)
+        att_emb_1 = F.dropout(self.mod(att), self.drop_prob, self.training)
+        att_emb_2 = F.dropout(self.mod(att_emb_1), self.drop_prob, self.training)
+        att_emb_3 = F.dropout(self.mod(att_emb_2), self.drop_prob, self.training)
 
         # 2 tensors, each (batch_size, c_len)
         out = self.out(att_emb_1, att_emb_2, att_emb_3, c_mask)

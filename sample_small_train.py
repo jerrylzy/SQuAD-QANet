@@ -2,7 +2,7 @@ import numpy as np
 from ujson import load as json_load
 from ujson import dump as json_dump
 
-num_samples = 256
+num_samples = 512
 # with open('data/dev_eval.json', 'r') as fh:
 #     gold_dict = json_load(fh)
 data = np.load('data/train.npz')

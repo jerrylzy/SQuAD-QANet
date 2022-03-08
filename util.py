@@ -723,3 +723,8 @@ def compute_f1(a_gold, a_pred):
     recall = 1.0 * num_same / len(gold_toks)
     f1 = (2 * precision * recall) / (precision + recall)
     return f1
+
+
+def stochastic_depth_layer_dropout(drop_prob, layer_number, num_layers):
+    return drop_prob * layer_number / num_layers
+    # return drop_prob

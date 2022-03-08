@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from layers import FeedForward, ResidualBlock
-from util import masked_softmax
+from util import masked_softmax, stochastic_depth_layer_dropout
 
 
 class DepthWiseSeparableConv1D(nn.Module):
@@ -20,10 +20,12 @@ class DepthWiseSeparableConv1D(nn.Module):
                                     groups=hidden_size,
                                     padding=kernel_size // 2,
                                     bias=False)
+        nn.init.xavier_uniform_(self.depth_conv.weight)
         self.point_conv = nn.Conv1d(in_channels=hidden_size,
                                     out_channels=hidden_size,
                                     kernel_size=1,
                                     bias=False)
+        nn.init.kaiming_normal_(self.point_conv.weight, nonlinearity='relu')
 
     def forward(self, x):
         depth = self.depth_conv(x.transpose(1, 2))
@@ -105,20 +107,20 @@ class EncoderBlock(nn.Module):
         # Pos Encoding
         self.pe = PositionalEncoding(
             emb_size=hidden_size,
-            dropout=self.stochastic_depth_layer_dropout(1))
+            dropout=stochastic_depth_layer_dropout(self.drop_prob, 1, self.num_layers))
 
         # Conv
         self.conv = nn.Sequential(
             *[ResidualBlock(
                 DepthWiseSeparableConv1D(hidden_size, kernel_size),
                 hidden_size=hidden_size,
-                residual_dropout_p=self.stochastic_depth_layer_dropout(2 + i)) for i in range(num_conv_layers)])
+                residual_dropout_p=stochastic_depth_layer_dropout(self.drop_prob, 2 + i, self.num_layers)) for i in range(num_conv_layers)])
 
         # Attention
         self.multihead_att = ResidualBlock(
             MultiHeadAttention(hidden_size, num_heads, dropout),
             hidden_size=hidden_size,
-            residual_dropout_p=self.stochastic_depth_layer_dropout(num_conv_layers + 2))
+            residual_dropout_p=stochastic_depth_layer_dropout(self.drop_prob, num_conv_layers + 2, self.num_layers))
 
         # Feed Forward
         self.ff = ResidualBlock(
@@ -134,11 +136,6 @@ class EncoderBlock(nn.Module):
         # FF
         output = self.ff(att)
         return output
-
-    def stochastic_depth_layer_dropout(self, layer):
-        # assert layer > 0
-        return self.drop_prob * layer / self.num_layers
-        # return self.drop_prob
 
 
 class StackedEmbeddingEncoderBlock(nn.Module):

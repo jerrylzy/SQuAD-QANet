@@ -10,8 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-# from qanet_layers import DepthWiseSeparableConv2D
-from util import masked_softmax
+from util import masked_softmax, stochastic_depth_layer_dropout
 
 class ResidualBlock(nn.Module):
     """
@@ -41,11 +40,14 @@ class FeedForward(nn.Module):
 
     def __init__(self, hidden_size, input_size = None, output_size = None):
         super().__init__()
-        self.l1 = Conv1dLinear(input_size if input_size != None else hidden_size, hidden_size, use_relu=True)
-        self.l2 = Conv1dLinear(hidden_size, output_size if output_size != None else hidden_size)
+        self.l1 = nn.Linear(input_size if input_size != None else hidden_size, hidden_size)
+        self.l2 = nn.Linear(hidden_size, output_size if output_size != None else hidden_size)
+        # self.l1 = Conv1dLinear(input_size if input_size != None else hidden_size, hidden_size, use_relu=True)
+        # self.l2 = Conv1dLinear(hidden_size, output_size if output_size != None else hidden_size)
 
     def forward(self, x):
-        return self.l2(self.l1(x))
+        # return self.l2(self.l1(x))
+        return self.l2(F.relu(self.l1(x)))
 
 
 class CharCNN(nn.Module):
@@ -57,10 +59,11 @@ class CharCNN(nn.Module):
         super().__init__()
         self.conv = nn.Conv2d(char_emb_dim, hidden_size, (1, kernel_width)) # Based on BiDAF's paper
         nn.init.kaiming_normal_(self.conv.weight, nonlinearity='relu')
-        self.dropout = nn.Dropout(drop_prob) # TODO: Try before the conv2d
+        # self.dropout = nn.Dropout(drop_prob) # TODO: Try before the conv2d
 
     def forward(self, x):
-        return F.relu(self.dropout(self.conv(x)))
+        # return F.relu(self.dropout(self.conv(x)))
+        return F.relu(self.conv(x))
 
 
 class Conv1dLinear(nn.Module):
@@ -100,16 +103,19 @@ class Embedding(nn.Module):
     def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob, use_char_cnn=False):
         super(Embedding, self).__init__()
         self.drop_prob = drop_prob
+        self.num_layers = 3
 
         vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
-        self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
+        self.char_embed = nn.Embedding.from_pretrained(char_vectors, freeze=False, padding_idx=0)
+        self.char_dropout = nn.Dropout(drop_prob * 0.5)
         # self.char_embed.weight.data.normal_(mean=0.0, std=0.02)
 
         # (batch_size, hidden_size, seq_len, char_limit)
-        self.char_conv = CharCNN(char_emb_dim=char_emb_dim, hidden_size=hidden_size, kernel_width=5, drop_prob=drop_prob * 0.5) if use_char_cnn else None
+        self.char_conv = CharCNN(char_emb_dim=char_emb_dim, hidden_size=hidden_size, kernel_width=5, drop_prob=drop_prob) if use_char_cnn else None
 
         # self.char_att = SelfAttention(self.CHAR_LIMIT * char_emb_dim, num_heads=8, dropout=drop_prob)
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
+        self.word_dropout = nn.Dropout(drop_prob)
         # self.proj = nn.Linear(word_vectors.size(1) + self.CHAR_LIMIT * char_emb_dim, hidden_size)
         # self.proj = ResidualBlock(
         #     FeedForward(hidden_size), hidden_size=hidden_size, residual_dropout_p=drop_prob)
@@ -124,12 +130,12 @@ class Embedding(nn.Module):
         # self.proj = nn.Linear(emb_dim, hidden_size, bias=False)
         # self.proj = ResidualBlock(
         #     FeedForward(hidden_size), hidden_size=hidden_size, residual_dropout_p=drop_prob)
+        self.hwy = HighwayEncoder(2, emb_dim)
         self.proj = Conv1dLinear(emb_dim, hidden_size, 1, bias=False)
-        self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, w_idx, c_idx):
-        word_emb = self.word_embed(w_idx)   # (batch_size, seq_len, word_embed_size)
-        char_emb = self.char_embed(c_idx)   # (batch_size, seq_len, char_limit, char_embed_size)
+        word_emb = self.word_dropout(self.word_embed(w_idx))   # (batch_size, seq_len, word_embed_size)
+        char_emb = self.char_dropout(self.char_embed(c_idx))   # (batch_size, seq_len, char_limit, char_embed_size)
 
         if self.char_conv == None:
             char_emb = char_emb.view((*char_emb.shape[:2], -1))
@@ -140,9 +146,11 @@ class Embedding(nn.Module):
             char_emb = char_emb.max(dim=3)[0].permute(0, 2, 1) # (batch_size, seq_len, embed_size)
 
         emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
-        emb = F.dropout(emb, self.drop_prob, self.training)
-        emb = self.proj(emb)  # (batch_size, seq_len, embed_size)
+        emb = F.dropout(emb, stochastic_depth_layer_dropout(self.drop_prob, 1, self.num_layers), self.training)
         emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
+        emb = F.dropout(emb, stochastic_depth_layer_dropout(self.drop_prob, 2, self.num_layers), self.training)
+        emb = self.proj(emb)  # (batch_size, seq_len, embed_size)
+        emb = F.dropout(emb, self.drop_prob, self.training)
 
         return emb
 
@@ -395,16 +403,16 @@ class BiDAFOutput(nn.Module):
     """
     def __init__(self, hidden_size, drop_prob):
         super(BiDAFOutput, self).__init__()
-        self.att_linear_1 = Conv1dLinear(10 * hidden_size, 1)
-        self.mod_linear_1 = Conv1dLinear(4 * hidden_size, 1)
+        self.att_linear_1 = nn.Linear(10 * hidden_size, 1)
+        self.mod_linear_1 = nn.Linear(4 * hidden_size, 1)
 
         self.rnn = RNNEncoder(input_size=4 * hidden_size,
                               hidden_size=2 * hidden_size,
                               num_layers=1,
                               drop_prob=drop_prob)
 
-        self.att_linear_2 = Conv1dLinear(10 * hidden_size, 1)
-        self.mod_linear_2 = Conv1dLinear(4 * hidden_size, 1)
+        self.att_linear_2 = nn.Linear(10 * hidden_size, 1)
+        self.mod_linear_2 = nn.Linear(4 * hidden_size, 1)
 
     def forward(self, att, mod, mask):
         # Shapes: (batch_size, seq_len, 1)
