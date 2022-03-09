@@ -125,13 +125,15 @@ class QANet(nn.Module):
                                     hidden_size=hidden_size,
                                     drop_prob=drop_prob,
                                     use_char_cnn=use_char_cnn)
-
+        num_conv_layers = 4
         self.enc = qanet_layers.EncoderBlock(
             hidden_size=hidden_size,
             num_heads=8,
             dropout=drop_prob,
             kernel_size=7,
-            num_conv_layers=4)
+            num_conv_layers=num_conv_layers,
+            base_layer_num=1,
+            total_num_layers=num_conv_layers + 2)
 
         self.att = layers.BiDAFAttention(hidden_size=hidden_size,
                                          drop_prob=drop_prob)
@@ -159,8 +161,8 @@ class QANet(nn.Module):
         # (batch_size, q_len, emb_size)
         q_emb = self.emb(qw_idxs, qc_idxs)
 
-        c_enc = self.enc(c_emb)    # (batch_size, c_len, hidden_size)
-        q_enc = self.enc(q_emb)    # (batch_size, q_len, hidden_size)
+        c_enc = self.enc(c_emb, c_mask)    # (batch_size, c_len, hidden_size)
+        q_enc = self.enc(q_emb, q_mask)    # (batch_size, q_len, hidden_size)
 
         att = self.att(c_enc, q_enc, c_mask, q_mask)    # (batch_size, c_len, 4 * hidden_size)
 
@@ -169,9 +171,9 @@ class QANet(nn.Module):
         att = self.mod_proj(att) if self.mod_proj != None else att
 
         # stackd encoder blocks share weights among its three repetitions
-        att_emb_1 = F.dropout(self.mod(att), self.drop_prob, self.training)
-        att_emb_2 = F.dropout(self.mod(att_emb_1), self.drop_prob, self.training)
-        att_emb_3 = F.dropout(self.mod(att_emb_2), self.drop_prob, self.training)
+        att_emb_1 = F.dropout(self.mod(att, c_mask), self.drop_prob, self.training)
+        att_emb_2 = F.dropout(self.mod(att_emb_1, c_mask), self.drop_prob, self.training)
+        att_emb_3 = F.dropout(self.mod(att_emb_2, c_mask), self.drop_prob, self.training)
 
         # 2 tensors, each (batch_size, c_len)
         out = self.out(att_emb_1, att_emb_2, att_emb_3, c_mask)

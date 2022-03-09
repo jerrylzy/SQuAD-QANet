@@ -10,7 +10,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from util import masked_softmax, stochastic_depth_layer_dropout
+from util import masked_softmax, stochastic_depth_layer_dropout, get_available_devices
+device, _ = get_available_devices()
+
 
 class ResidualBlock(nn.Module):
     """
@@ -20,14 +22,14 @@ class ResidualBlock(nn.Module):
     def __init__(self, module, hidden_size, residual_dropout_p=0.1):
         super().__init__()
         self.module = module
-        self.layer_norm = nn.LayerNorm(hidden_size)
+        self.layer_norm = nn.LayerNorm(hidden_size, device=device)
         self.residual_dropout = nn.Dropout(residual_dropout_p)
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
         # Normalize
         input = self.layer_norm(x)
         # Apply module
-        output = self.residual_dropout(self.module(input))
+        output = self.residual_dropout(self.module(input, mask)) if mask != None else self.residual_dropout(self.module(input))
         # Add residual connection
         output = output + x
         return output
@@ -40,8 +42,8 @@ class FeedForward(nn.Module):
 
     def __init__(self, hidden_size, input_size = None, output_size = None):
         super().__init__()
-        self.l1 = nn.Linear(input_size if input_size != None else hidden_size, hidden_size)
-        self.l2 = nn.Linear(hidden_size, output_size if output_size != None else hidden_size)
+        self.l1 = nn.Linear(input_size if input_size != None else hidden_size, hidden_size, device=device)
+        self.l2 = nn.Linear(hidden_size, output_size if output_size != None else hidden_size, device=device)
         # self.l1 = Conv1dLinear(input_size if input_size != None else hidden_size, hidden_size, use_relu=True)
         # self.l2 = Conv1dLinear(hidden_size, output_size if output_size != None else hidden_size)
 
@@ -57,7 +59,7 @@ class CharCNN(nn.Module):
 
     def __init__(self, char_emb_dim, hidden_size, kernel_width=5, drop_prob=0.05):
         super().__init__()
-        self.conv = nn.Conv2d(char_emb_dim, hidden_size, (1, kernel_width)) # Based on BiDAF's paper
+        self.conv = nn.Conv2d(char_emb_dim, hidden_size, (1, kernel_width), device=device) # Based on BiDAF's paper
         nn.init.kaiming_normal_(self.conv.weight, nonlinearity='relu')
         # self.dropout = nn.Dropout(drop_prob) # TODO: Try before the conv2d
 
@@ -72,7 +74,7 @@ class Conv1dLinear(nn.Module):
     """
     def __init__(self, input_size, output_size, use_relu=False, bias=True):
         super().__init__()
-        self.conv = nn.Conv1d(input_size, output_size, 1, bias=bias)
+        self.conv = nn.Conv1d(input_size, output_size, 1, bias=bias, device=device)
         self.use_relu = use_relu
 
         if use_relu:
@@ -169,9 +171,9 @@ class HighwayEncoder(nn.Module):
     """
     def __init__(self, num_layers, hidden_size):
         super(HighwayEncoder, self).__init__()
-        self.transforms = nn.ModuleList([nn.Linear(hidden_size, hidden_size)
+        self.transforms = nn.ModuleList([nn.Linear(hidden_size, hidden_size, device=device)
                                          for _ in range(num_layers)])
-        self.gates = nn.ModuleList([nn.Linear(hidden_size, hidden_size)
+        self.gates = nn.ModuleList([nn.Linear(hidden_size, hidden_size, device=device)
                                     for _ in range(num_layers)])
 
     def forward(self, x):
@@ -338,12 +340,12 @@ class BiDAFAttention(nn.Module):
     def __init__(self, hidden_size, drop_prob=0.1):
         super(BiDAFAttention, self).__init__()
         self.drop_prob = drop_prob
-        self.c_weight = nn.Parameter(torch.zeros(hidden_size, 1))
-        self.q_weight = nn.Parameter(torch.zeros(hidden_size, 1))
-        self.cq_weight = nn.Parameter(torch.zeros(1, 1, hidden_size))
+        self.c_weight = nn.Parameter(torch.zeros(hidden_size, 1, device=device))
+        self.q_weight = nn.Parameter(torch.zeros(hidden_size, 1, device=device))
+        self.cq_weight = nn.Parameter(torch.zeros(1, 1, hidden_size, device=device))
         for weight in (self.c_weight, self.q_weight, self.cq_weight):
             nn.init.xavier_uniform_(weight)
-        self.bias = nn.Parameter(torch.zeros(1))
+        self.bias = nn.Parameter(torch.zeros(1, device=device))
 
     def forward(self, c, q, c_mask, q_mask):
         batch_size, c_len, _ = c.size()
