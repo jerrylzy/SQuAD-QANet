@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from layers import FeedForward, ResidualBlock
+from layers import FeedForward, ResidualBlock, PositionalEncoding, MultiHeadAttention
 from util import masked_softmax, stochastic_depth_layer_dropout, get_available_devices
 device, _ = get_available_devices()
 
@@ -35,69 +35,6 @@ class DepthWiseSeparableConv1D(nn.Module):
         point = self.point_conv(depth).transpose(1, 2)
 
         return F.relu(point)
-
-
-class PositionalEncoding(nn.Module):
-    """
-    Fixed positional encoding layer
-    """
-
-    def __init__(self, emb_size, max_len=1024):
-        super().__init__()
-        # self.dropout = nn.Dropout(p=dropout)
-        assert emb_size % 2 == 0
-
-        pe = torch.zeros(1, max_len, emb_size, device=device)
-        i = torch.arange(0, max_len).repeat((emb_size // 2, 1)).T
-        j = torch.arange(0, emb_size, 2)
-        index = i * 10000 ** (-j / emb_size)
-        pe[:, :, 0::2] = torch.sin(index)
-        pe[:, :, 1::2] = torch.cos(index)
-        self.register_buffer('pe', pe)
-
-    def forward(self, x):
-        # x.shape = batch size, sequence size, embedding dimension
-        # output = self.dropout(x + self.pe[:, :x.shape[1], :])
-        output = x + self.pe[:, :x.shape[1], :]
-        return output
-
-
-class MultiHeadAttention(nn.Module):
-    """
-    Transformer Multihead Self-Attention
-    """
-
-    def __init__(self, hidden_size, num_heads, dropout=0.1):
-        super().__init__()
-        assert hidden_size % num_heads == 0
-        self.key = nn.Linear(hidden_size, hidden_size, device=device)
-        self.query = nn.Linear(hidden_size, hidden_size, device=device)
-        self.value = nn.Linear(hidden_size, hidden_size, device=device)
-        self.proj = nn.Linear(hidden_size, hidden_size, device=device)
-        self.num_heads = num_heads
-        self.d_k = hidden_size // num_heads
-        self.scaled_dk = math.sqrt(self.d_k)
-        self.softmax = nn.Softmax(dim=-1)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x, att_mask=None):
-        # batch size, sequence size, embedding dimension
-        N, S, _ = x.shape
-        H = self.num_heads
-        q = self.query(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
-        k = self.key(x).view(N, S, H, self.d_k).transpose(1, 2)     # (N, H, S, dk)
-        v = self.value(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
-
-        att = torch.matmul(q, k.transpose(2, 3)) / self.scaled_dk  # Scaled Dot Product Attention
-        if att_mask != None:
-            att_mask = att_mask.view(att_mask.shape[0], 1, 1, att_mask.shape[1])
-            att = att.masked_fill(att_mask == 0, -torch.inf)
-
-        att = self.dropout(self.softmax(att))  # (N, H, S, T)
-
-        y = torch.matmul(att, v).transpose(1, 2).contiguous().view(N, S, -1)
-
-        return self.proj(y)
 
 
 class EncoderBlock(nn.Module):

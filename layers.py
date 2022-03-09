@@ -234,26 +234,29 @@ class RNNEncoder(nn.Module):
         return x
 
 
+
 class PositionalEncoding(nn.Module):
     """
     Fixed positional encoding layer
     """
-    def __init__(self, hidden_size, dropout=0.1, max_len=5000):
-        super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-        # assert hidden_size % 2 == 0
 
-        pe = torch.zeros(1, max_len, hidden_size)
-        i = torch.arange(0, max_len).repeat((hidden_size // 2, 1)).T
-        j = torch.arange(0, hidden_size, 2)
-        index = i * 10000 ** (-j / hidden_size)
+    def __init__(self, emb_size, max_len=1024):
+        super().__init__()
+        # self.dropout = nn.Dropout(p=dropout)
+        assert emb_size % 2 == 0
+
+        pe = torch.zeros(1, max_len, emb_size, device=device)
+        i = torch.arange(0, max_len).repeat((emb_size // 2, 1)).T
+        j = torch.arange(0, emb_size, 2)
+        index = i * 10000 ** (-j / emb_size)
         pe[:, :, 0::2] = torch.sin(index)
         pe[:, :, 1::2] = torch.cos(index)
         self.register_buffer('pe', pe)
 
     def forward(self, x):
         # x.shape = batch size, sequence size, embedding dimension
-        output = self.dropout(x + self.pe[:, :x.shape[1], :])
+        # output = self.dropout(x + self.pe[:, :x.shape[1], :])
+        output = x + self.pe[:, :x.shape[1], :]
         return output
 
 
@@ -261,35 +264,37 @@ class MultiHeadAttention(nn.Module):
     """
     Transformer Multihead Self-Attention
     """
+
     def __init__(self, hidden_size, num_heads, dropout=0.1):
-        super(MultiHeadAttention, self).__init__()
+        super().__init__()
         assert hidden_size % num_heads == 0
-        self.key = nn.Linear(hidden_size, hidden_size)
-        self.query = nn.Linear(hidden_size, hidden_size)
-        self.value = nn.Linear(hidden_size, hidden_size)
-        self.proj = nn.Linear(hidden_size, hidden_size)
+        self.key = nn.Linear(hidden_size, hidden_size, device=device)
+        self.query = nn.Linear(hidden_size, hidden_size, device=device)
+        self.value = nn.Linear(hidden_size, hidden_size, device=device)
+        self.proj = nn.Linear(hidden_size, hidden_size, device=device)
         self.num_heads = num_heads
         self.d_k = hidden_size // num_heads
         self.scaled_dk = math.sqrt(self.d_k)
-        self.softmax = nn.Softmax(dim=-1)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, query, key, value):
+    def forward(self, x, att_mask=None):
         # batch size, sequence size, embedding dimension
-        N, S, _ = query.shape
-        N, T, _ = value.shape
+        N, S, _ = x.shape
         H = self.num_heads
-        q = self.query(query).view(N, S, H, self.d_k).transpose(1, 2) # (N, H, S, dk)
-        k = self.key(key).view(N, T, H, self.d_k).transpose(1, 2)     # (N, H, T, dk)
-        v = self.value(value).view(N, T, H, self.d_k).transpose(1, 2) # (N, H, T, dk)
+        q = self.query(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
+        k = self.key(x).view(N, S, H, self.d_k).transpose(1, 2)     # (N, H, S, dk)
+        v = self.value(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
 
-        att = torch.matmul(q, k.transpose(2, 3)) / self.scaled_dk # Scaled Dot Product Attention
-
-        att = self.dropout(self.softmax(att)) # (N, H, S, T)
+        att = torch.matmul(q, k.transpose(2, 3)) / self.scaled_dk  # Scaled Dot Product Attention
+        if att_mask != None:
+            att_mask = att_mask.view(att_mask.shape[0], 1, 1, att_mask.shape[1])
+            att = self.dropout(masked_softmax(att, att_mask))
+        else:
+            att = self.dropout(F.softmax(att, dim=-1))  # (N, H, S, T)
 
         y = torch.matmul(att, v).transpose(1, 2).contiguous().view(N, S, -1)
-        output = self.proj(y)
-        return output
+
+        return self.proj(y)
 
 
 class SelfAttention(nn.Module):
@@ -300,7 +305,7 @@ class SelfAttention(nn.Module):
         super(SelfAttention, self).__init__()
 
         # Attention
-        self.pe = PositionalEncoding(hidden_size, dropout)
+        self.pe = PositionalEncoding(hidden_size)
         self.multihead_att = MultiHeadAttention(hidden_size, num_heads, dropout)
         self.residual_dropout_1 = nn.Dropout(dropout)
         self.layer_norm_1 = nn.LayerNorm(hidden_size)
@@ -310,11 +315,11 @@ class SelfAttention(nn.Module):
         self.residual_dropout_2 = nn.Dropout(dropout)
         self.layer_norm_2 = nn.LayerNorm(hidden_size)
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
         # Add positional encoding
         x = self.pe(x)
         # MultiHeadAttention
-        att = self.residual_dropout_1(self.multihead_att(x, x, x))
+        att = self.residual_dropout_1(self.multihead_att(x, mask))
         att = self.layer_norm_1(att + x)
         # FF
         ff = self.residual_dropout_2(self.ff(att))

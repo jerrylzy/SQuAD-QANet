@@ -726,5 +726,6 @@ def compute_f1(a_gold, a_pred):
 
 
 def stochastic_depth_layer_dropout(drop_prob, layer_number, num_layers):
+    # assert layer_number <= num_layers
     return drop_prob * layer_number / num_layers
     # return drop_prob
