@@ -74,11 +74,10 @@ class BiDAF(nn.Module):
         # (batch_size, q_len, 2 * hidden_size)
         q_enc = self.enc(q_emb, q_len)
 
-        att = self.att(c_enc, q_enc,
-                       c_mask, q_mask)    # (batch_size, c_len, 8 * hidden_size)
+        att = self.att(c_enc, q_enc, c_mask, q_mask)    # (batch_size, c_len, 8 * hidden_size)
 
         # (batch_size, c_len, 2 * hidden_size)
-        self_att = self.self_att(c_enc)
+        self_att = self.self_att(c_enc, c_mask)
 
         concat_att = torch.cat((att, self_att), dim=2)
 

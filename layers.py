@@ -10,7 +10,24 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from util import masked_softmax
+from util import masked_softmax, get_available_devices
+device, _ = get_available_devices()
+
+class CharCNN(nn.Module):
+    """
+    Character CNN
+    """
+
+    def __init__(self, char_emb_dim, hidden_size, kernel_width=5, drop_prob=0.05, char_limit=16):
+        super().__init__()
+        self.conv = nn.Conv2d(char_emb_dim, hidden_size, (1, kernel_width), padding=(0, kernel_width // 2), device=device) # Based on BiDAF's paper
+        nn.init.kaiming_normal_(self.conv.weight, nonlinearity='relu')
+        self.maxpool = nn.MaxPool2d((1, char_limit))
+        self.dropout = nn.Dropout(drop_prob)
+
+    def forward(self, x):
+        return self.dropout(self.maxpool(F.relu(self.conv(x))).squeeze(3))
+        # return F.relu(self.conv(x))
 
 
 class Embedding(nn.Module):
@@ -31,16 +48,25 @@ class Embedding(nn.Module):
     def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob):
         super(Embedding, self).__init__()
         self.drop_prob = drop_prob
-        self.char_embed = nn.Embedding.from_pretrained(char_vectors)
+        vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
+        self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
-        self.proj = nn.Linear(word_vectors.size(1) + char_vectors.size(1) * self.CHAR_LIMIT, hidden_size, bias=False)
+
+        self.char_conv = CharCNN(char_emb_dim=char_emb_dim, hidden_size=hidden_size, kernel_width=5, drop_prob=drop_prob, char_limit=self.CHAR_LIMIT)
+        self.proj = nn.Linear(word_vectors.size(1) + hidden_size, hidden_size, bias=False)
+
+        # self.proj = nn.Linear(word_vectors.size(1) + char_vectors.size(1) * self.CHAR_LIMIT, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, w_idx, c_idx):
         word_emb = self.word_embed(w_idx)   # (batch_size, seq_len, word_embed_size)
         char_emb = self.char_embed(c_idx)   # (batch_size, seq_len, char_limit, char_embed_size)
-        emb = torch.cat((word_emb, char_emb.view(*char_emb.shape[:2], -1)), dim=2)   # (batch_size, seq_len, embed_size)
-        emb = F.dropout(emb, self.drop_prob, self.training)
+
+        char_emb = self.char_conv(char_emb.permute(0, 3, 1, 2)).permute(0, 2, 1) # (batch_size, seq_len, embed_size)
+        emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
+
+        # emb = torch.cat((word_emb, char_emb.view(*char_emb.shape[:2], -1)), dim=2)   # (batch_size, seq_len, embed_size)
+        # emb = F.dropout(emb, self.drop_prob, self.training)
         emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
         emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
 
@@ -140,7 +166,7 @@ class PositionalEncoding(nn.Module):
         pe[:, :, 0::2] = torch.sin(index)
         pe[:, :, 1::2] = torch.cos(index)
         self.register_buffer('pe', pe)
-    
+
     def forward(self, x):
         # x.shape = batch size, sequence size, embedding dimension
         output = self.dropout(x + self.pe[:, :x.shape[1], :])
@@ -164,22 +190,24 @@ class MultiHeadAttention(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, query, key, value):
+    def forward(self, x, att_mask=None):
         # batch size, sequence size, embedding dimension
-        N, S, _ = query.shape
-        N, T, _ = value.shape
+        N, S, _ = x.shape
         H = self.num_heads
-        q = self.query(query).view(N, S, H, self.d_k).transpose(1, 2) # (N, H, S, dk)
-        k = self.key(key).view(N, T, H, self.d_k).transpose(1, 2)     # (N, H, T, dk)
-        v = self.value(value).view(N, T, H, self.d_k).transpose(1, 2) # (N, H, T, dk)
+        q = self.query(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
+        k = self.key(x).view(N, S, H, self.d_k).transpose(1, 2)     # (N, H, S, dk)
+        v = self.value(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
 
-        att = torch.matmul(q, k.transpose(2, 3)) / self.scaled_dk # Scaled Dot Product Attention
-
-        att = self.dropout(self.softmax(att)) # (N, H, S, T)
+        att = torch.matmul(q, k.transpose(2, 3)) / self.scaled_dk  # Scaled Dot Product Attention
+        if att_mask != None:
+            att_mask = att_mask.view(att_mask.shape[0], 1, 1, att_mask.shape[1])
+            att = self.dropout(masked_softmax(att, att_mask))
+        else:
+            att = self.dropout(F.softmax(att, dim=-1))  # (N, H, S, T)
 
         y = torch.matmul(att, v).transpose(1, 2).contiguous().view(N, S, -1)
-        output = self.proj(y)
-        return output
+
+        return self.proj(y)
 
 
 class SelfAttention(nn.Module):
@@ -201,15 +229,15 @@ class SelfAttention(nn.Module):
         self.residual_dropout_2 = nn.Dropout(dropout)
         self.layer_norm_2 = nn.LayerNorm(hidden_size)
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
         # Add positional encoding
         x = self.pe(x)
         # MultiHeadAttention
-        att = self.residual_dropout_1(self.multihead_att(x, x, x))
+        att = self.residual_dropout_1(self.multihead_att(x, mask))
         att = self.layer_norm_1(att + x)
         # FF
         ff = F.leaky_relu(self.linear_1(att))
-        ff = F.leaky_relu(self.linear_2(ff))
+        ff = self.linear_2(ff)
         ff = self.residual_dropout_2(ff)
         output = self.layer_norm_2(ff + att)
         return output
