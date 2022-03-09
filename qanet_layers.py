@@ -124,7 +124,7 @@ class ResidualBlock(nn.Module):
         # Normalize
         input = self.layer_norm(x)
         # Apply module
-        output = self.residual_dropout(self.module(input, mask)) if mask else self.residual_dropout(self.module(input))
+        output = self.residual_dropout(self.module(input, mask)) if mask != None else self.residual_dropout(self.module(input))
         # Add residual connection
         output = output + x
         return output
