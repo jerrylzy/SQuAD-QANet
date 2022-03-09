@@ -149,12 +149,11 @@ class QANet(nn.Module):
         # (batch_size, q_len, emb_size)
         q_emb = self.emb(qw_idxs, qc_idxs)
 
-        c_enc = self.enc(c_emb)    # (batch_size, c_len, hidden_size)
-        q_enc = self.enc(q_emb)    # (batch_size, q_len, hidden_size)
+        c_enc = self.enc(c_emb, c_mask)    # (batch_size, c_len, hidden_size)
+        q_enc = self.enc(q_emb, q_mask)    # (batch_size, q_len, hidden_size)
 
-        att = self.att(c_enc, q_enc,
-                       c_mask, q_mask)    # (batch_size, c_len, 4 * hidden_size)
-        
+        att = self.att(c_enc, q_enc, c_mask, q_mask)    # (batch_size, c_len, 4 * hidden_size)
+
         # TODO: Remove. Test projection with less size
         att = self.proj(att) if self.proj != None else att
 

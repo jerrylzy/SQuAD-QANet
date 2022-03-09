@@ -54,7 +54,7 @@ class PositionalEncoding(nn.Module):
 
     def __init__(self, emb_size, dropout=0.1, max_len=1024):
         super().__init__()
-        self.dropout = nn.Dropout(p=dropout)
+        self.dropout = nn.Dropout(p=0)
         # assert hidden_size % 2 == 0
 
         pe = torch.zeros(1, max_len, emb_size)
@@ -89,27 +89,24 @@ class MultiHeadAttention(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
+    def forward(self, x, att_mask=None):
         # batch size, sequence size, embedding dimension
         N, S, _ = x.shape
         H = self.num_heads
-        q = self.query(x).view(N, S, H, self.d_k).to(memory_format=torch.channels_last).transpose(
-            1, 2)  # (N, H, S, dk)
-        k = self.key(x).view(N, S, H, self.d_k).to(memory_format=torch.channels_last).transpose(
-            1, 2)     # (N, H, S, dk)
-        v = self.value(x).view(N, S, H, self.d_k).to(memory_format=torch.channels_last).transpose(
-            1, 2)  # (N, H, S, dk)
+        q = self.query(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
+        k = self.key(x).view(N, S, H, self.d_k).transpose(1, 2)     # (N, H, S, dk)
+        v = self.value(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
 
-        att = torch.matmul(q, k.transpose(2, 3)).to(
-            memory_format=torch.channels_last) / self.scaled_dk  # Scaled Dot Product Attention
+        att = torch.matmul(q, k.transpose(2, 3)) / self.scaled_dk  # Scaled Dot Product Attention
+        if att_mask != None:
+            att_mask = att_mask.view(att_mask.shape[0], 1, 1, att_mask.shape[1])
+            att = self.dropout(masked_softmax(att, att_mask))
+        else:
+            att = self.dropout(F.softmax(att, dim=-1))  # (N, H, S, T)
 
-        att = self.dropout(self.softmax(att)).to(
-            memory_format=torch.channels_last)  # (N, H, S, T)
+        y = torch.matmul(att, v).transpose(1, 2).contiguous().view(N, S, -1)
 
-        y = torch.matmul(att, v).to(memory_format=torch.channels_last).transpose(
-            1, 2).contiguous().view(N, S, -1)
-        output = self.proj(y)
-        return output
+        return self.proj(y)
 
 
 class ResidualBlock(nn.Module):
@@ -123,11 +120,11 @@ class ResidualBlock(nn.Module):
         self.layer_norm = nn.LayerNorm(hidden_size)
         self.residual_dropout = nn.Dropout(residual_dropout_p)
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
         # Normalize
         input = self.layer_norm(x)
         # Apply module
-        output = self.residual_dropout(self.module(input))
+        output = self.residual_dropout(self.module(input, mask)) if mask else self.residual_dropout(self.module(input))
         # Add residual connection
         output = output + x
         return output
@@ -140,10 +137,11 @@ class FeedForward(nn.Module):
 
     def __init__(self, hidden_size):
         super().__init__()
-        self.linear = nn.Linear(hidden_size, hidden_size)
+        self.linear1 = nn.Linear(hidden_size, hidden_size)
+        self.linear2 = nn.Linear(hidden_size, hidden_size)
 
     def forward(self, x):
-        return F.relu(self.linear(x))
+        return self.linear2(F.relu(self.linear1(x)))
 
 
 class DepthWiseSeparableConv(nn.Module):
@@ -197,13 +195,13 @@ class EncoderBlock(nn.Module):
         self.ff = ResidualBlock(FeedForward(
             hidden_size), hidden_size=hidden_size)
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
         # Add positional encoding
         x = self.pe(x)
         # Conv
         conv = self.conv(x)
         # MultiHeadAttention
-        att = self.multihead_att(conv)
+        att = self.multihead_att(conv, mask)
         # FF
         output = self.ff(att)
         return output
