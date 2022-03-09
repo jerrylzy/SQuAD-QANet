@@ -129,11 +129,11 @@ class Embedding(nn.Module):
         #     nn.Linear(combined_emb_dim, hidden_size),
         # )
 
-        # self.proj = nn.Linear(emb_dim, hidden_size, bias=False)
+        self.proj = nn.Linear(emb_dim, hidden_size, bias=False)
         # self.proj = ResidualBlock(
         #     FeedForward(hidden_size), hidden_size=hidden_size, residual_dropout_p=drop_prob)
-        self.hwy = HighwayEncoder(2, emb_dim)
-        self.proj = Conv1dLinear(emb_dim, hidden_size, 1, bias=False)
+        # self.proj = Conv1dLinear(emb_dim, hidden_size, 1, bias=False)
+        self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, w_idx, c_idx):
         word_emb = self.word_dropout(self.word_embed(w_idx))   # (batch_size, seq_len, word_embed_size)
@@ -148,11 +148,11 @@ class Embedding(nn.Module):
             char_emb = char_emb.max(dim=3)[0].permute(0, 2, 1) # (batch_size, seq_len, embed_size)
 
         emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
-        emb = F.dropout(emb, stochastic_depth_layer_dropout(self.drop_prob, 1, self.num_layers), self.training)
-        emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
-        emb = F.dropout(emb, stochastic_depth_layer_dropout(self.drop_prob, 2, self.num_layers), self.training)
+        # emb = F.dropout(emb, stochastic_depth_layer_dropout(self.drop_prob, 1, self.num_layers), self.training)
         emb = self.proj(emb)  # (batch_size, seq_len, embed_size)
-        emb = F.dropout(emb, self.drop_prob, self.training)
+        emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
+        # emb = F.dropout(emb, stochastic_depth_layer_dropout(self.drop_prob, 2, self.num_layers), self.training)
+        # emb = F.dropout(emb, self.drop_prob, self.training)
 
         return emb
 
