@@ -255,35 +255,14 @@ class MultiHeadAttention(nn.Module):
     """
 
     def __init__(self, hidden_size, num_heads, dropout=0.1):
-        super().__init__()
+        super(MultiHeadAttention, self).__init__()
         assert hidden_size % num_heads == 0
-        self.key = nn.Linear(hidden_size, hidden_size, device=device)
-        self.query = nn.Linear(hidden_size, hidden_size, device=device)
-        self.value = nn.Linear(hidden_size, hidden_size, device=device)
-        self.proj = nn.Linear(hidden_size, hidden_size, device=device)
-        self.num_heads = num_heads
-        self.d_k = hidden_size // num_heads
-        self.scaled_dk = math.sqrt(self.d_k)
-        self.dropout = nn.Dropout(0)
 
-    def forward(self, x, att_mask=None):
-        # batch size, sequence size, embedding dimension
-        N, S, _ = x.shape
-        H = self.num_heads
-        q = self.query(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
-        k = self.key(x).view(N, S, H, self.d_k).transpose(1, 2)     # (N, H, S, dk)
-        v = self.value(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
+        self.ma = nn.MultiheadAttention(hidden_size, num_heads, dropout, batch_first=True, device=device)
 
-        att = torch.matmul(q, k.transpose(2, 3)) / self.scaled_dk  # Scaled Dot Product Attention
-        if att_mask != None:
-            att_mask = att_mask.view(att_mask.shape[0], 1, 1, att_mask.shape[1])
-            att = self.dropout(masked_softmax(att, att_mask))
-        else:
-            att = self.dropout(F.softmax(att, dim=-1))  # (N, H, S, T)
-
-        y = torch.matmul(att, v).transpose(1, 2).contiguous().view(N, S, -1)
-
-        return self.proj(y)
+    def forward(self, x, attn_mask=None):
+        attn_output, _ = self.ma(x, x, x, key_padding_mask = attn_mask.int())
+        return attn_output
 
 
 class SelfAttention(nn.Module):
