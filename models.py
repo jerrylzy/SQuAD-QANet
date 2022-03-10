@@ -61,17 +61,17 @@ class BiDAF(nn.Module):
 
         self.out = layers.BiDAFOutput(hidden_size=hidden_size,
                                       drop_prob=drop_prob)
-        self.apply(self._init_weights)
+    #     self.apply(self._init_weights)
 
 
-    def _init_weights(self, module):
-        if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=0.02)
-            if isinstance(module, nn.Linear) and module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.LayerNorm):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
+    # def _init_weights(self, module):
+    #     if isinstance(module, (nn.Linear, nn.Embedding)):
+    #         module.weight.data.normal_(mean=0.0, std=0.02)
+    #         if isinstance(module, nn.Linear) and module.bias is not None:
+    #             module.bias.data.zero_()
+    #     elif isinstance(module, nn.LayerNorm):
+    #         module.bias.data.zero_()
+    #         module.weight.data.fill_(1.0)
 
 
     def forward(self, cw_idxs, cc_idxs, qw_idxs, qc_idxs):
