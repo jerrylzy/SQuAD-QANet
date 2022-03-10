@@ -39,20 +39,17 @@ class BiDAF(nn.Module):
                                     hidden_size=hidden_size,
                                     drop_prob=drop_prob)
 
-        self.enc = layers.RNNEncoder(input_size=hidden_size,
-                                     hidden_size=hidden_size,
-                                     num_layers=1,
-                                     drop_prob=drop_prob)
+        self.enc = qanet_layers.EncoderBlock(hidden_size, 8, drop_prob, 7, 4)
 
-        self.att = layers.BiDAFAttention(hidden_size=2 * hidden_size,
+        self.att = layers.BiDAFAttention(hidden_size=hidden_size,
                                          drop_prob=drop_prob)
 
-        self.self_att = layers.SelfAttention(hidden_size=2 * hidden_size,
+        self.self_att = layers.SelfAttention(hidden_size=hidden_size,
                                              num_heads=8,
                                              dropout=drop_prob)
 
-        self.mod = layers.RNNEncoder(input_size=10 * hidden_size,
-                                     hidden_size=2 * hidden_size,
+        self.mod = layers.RNNEncoder(input_size=5 * hidden_size,
+                                     hidden_size=hidden_size,
                                      num_layers=2,
                                      drop_prob=drop_prob)
 
