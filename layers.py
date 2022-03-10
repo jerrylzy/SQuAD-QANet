@@ -21,12 +21,12 @@ class CharCNN(nn.Module):
     def __init__(self, char_emb_dim, hidden_size, kernel_width=5, drop_prob=0.05, char_limit=16):
         super().__init__()
         self.conv = nn.Conv2d(char_emb_dim, hidden_size, (1, kernel_width), padding=(0, kernel_width // 2), device=device) # Based on BiDAF's paper
-        nn.init.kaiming_normal_(self.conv.weight, nonlinearity='relu')
+        nn.init.kaiming_normal_(self.conv.weight, nonlinearity='leaky_relu')
         self.maxpool = nn.MaxPool2d((1, char_limit))
         self.dropout = nn.Dropout(drop_prob)
 
     def forward(self, x):
-        return self.dropout(self.maxpool(F.relu(self.conv(x))).squeeze(3))
+        return self.dropout(self.maxpool(F.leaky_relu(self.conv(x))).squeeze(3))
         # return F.relu(self.conv(x))
 
 

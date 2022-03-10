@@ -47,28 +47,49 @@ class InputEmbedding(nn.Module):
         return emb
 
 
+# class PositionalEncoding(nn.Module):
+#     """
+#     Fixed positional encoding layer
+#     """
+
+#     def __init__(self, emb_size, dropout=0.1, max_len=1024):
+#         super().__init__()
+#         self.dropout = nn.Dropout(p=0)
+#         # assert hidden_size % 2 == 0
+
+#         pe = torch.zeros(1, max_len, emb_size)
+#         i = torch.arange(0, max_len).repeat((emb_size // 2, 1)).T
+#         j = torch.arange(0, emb_size, 2)
+#         index = i * 10000 ** (-j / emb_size)
+#         pe[:, :, 0::2] = torch.sin(index)
+#         pe[:, :, 1::2] = torch.cos(index)
+#         self.register_buffer('pe', pe)
+
+#     def forward(self, x):
+#         # x.shape = batch size, sequence size, embedding dimension
+#         output = self.dropout(x + self.pe[:, :x.shape[1], :])
+#         return output
+
 class PositionalEncoding(nn.Module):
-    """
-    Fixed positional encoding layer
-    """
 
-    def __init__(self, emb_size, dropout=0.1, max_len=1024):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 1024):
         super().__init__()
-        self.dropout = nn.Dropout(p=0)
-        # assert hidden_size % 2 == 0
+        self.dropout = nn.Dropout(p=dropout)
 
-        pe = torch.zeros(1, max_len, emb_size)
-        i = torch.arange(0, max_len).repeat((emb_size // 2, 1)).T
-        j = torch.arange(0, emb_size, 2)
-        index = i * 10000 ** (-j / emb_size)
-        pe[:, :, 0::2] = torch.sin(index)
-        pe[:, :, 1::2] = torch.cos(index)
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, 1, d_model)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
         self.register_buffer('pe', pe)
 
-    def forward(self, x):
-        # x.shape = batch size, sequence size, embedding dimension
-        output = self.dropout(x + self.pe[:, :x.shape[1], :])
-        return output
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: Tensor, shape [seq_len, batch_size, embedding_dim]
+        """
+        x = x + self.pe[:x.size(0)]
+        return self.dropout(x)
 
 
 class MultiHeadAttention(nn.Module):
@@ -141,7 +162,7 @@ class FeedForward(nn.Module):
         self.linear2 = nn.Linear(hidden_size, hidden_size)
 
     def forward(self, x):
-        return self.linear2(F.relu(self.linear1(x)))
+        return self.linear2(F.leaky_relu(self.linear1(x)))
 
 
 class DepthWiseSeparableConv(nn.Module):
@@ -161,12 +182,16 @@ class DepthWiseSeparableConv(nn.Module):
                                out_channels=hidden_size,
                                kernel_size=1,
                                bias=True)
+        nn.init.kaiming_normal_(self.depth_conv.weight)
+        nn.init.constant_(self.depth_conv.bias, 0.0)
+        nn.init.kaiming_normal_(self.point_conv.weight)
+        nn.init.constant_(self.point_conv.bias, 0.0)
 
     def forward(self, x):
         depth = self.depth_conv(x.transpose(1, 2))
         point = self.point_conv(depth).transpose(1, 2)
 
-        return F.relu(point)
+        return F.leaky_relu(point)
 
 
 class EncoderBlock(nn.Module):
