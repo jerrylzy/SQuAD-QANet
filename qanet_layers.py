@@ -3,8 +3,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from util import masked_softmax
 from layers import HighwayEncoder
+from util import masked_softmax, get_available_devices
+device, _ = get_available_devices()
 
 
 class InputEmbedding(nn.Module):
@@ -78,7 +79,7 @@ class PositionalEncoding(nn.Module):
 
         position = torch.arange(max_len).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-        pe = torch.zeros(max_len, 1, d_model)
+        pe = torch.zeros(max_len, 1, d_model, device=device)
         pe[:, 0, 0::2] = torch.sin(position * div_term)
         pe[:, 0, 1::2] = torch.cos(position * div_term)
         self.register_buffer('pe', pe)
@@ -99,35 +100,40 @@ class MultiHeadAttention(nn.Module):
 
     def __init__(self, hidden_size, num_heads, dropout=0.1):
         super().__init__()
-        # assert hidden_size % num_heads == 0
-        self.key = nn.Linear(hidden_size, hidden_size)
-        self.query = nn.Linear(hidden_size, hidden_size)
-        self.value = nn.Linear(hidden_size, hidden_size)
-        self.proj = nn.Linear(hidden_size, hidden_size)
-        self.num_heads = num_heads
-        self.d_k = hidden_size // num_heads
-        self.scaled_dk = math.sqrt(self.d_k)
-        self.softmax = nn.Softmax(dim=-1)
-        self.dropout = nn.Dropout(dropout)
+        assert hidden_size % num_heads == 0
+        # self.key = nn.Linear(hidden_size, hidden_size)
+        # self.query = nn.Linear(hidden_size, hidden_size)
+        # self.value = nn.Linear(hidden_size, hidden_size)
+        # self.proj = nn.Linear(hidden_size, hidden_size)
+        # self.num_heads = num_heads
+        # self.d_k = hidden_size // num_heads
+        # self.scaled_dk = math.sqrt(self.d_k)
+        # self.softmax = nn.Softmax(dim=-1)
+        # self.dropout = nn.Dropout(dropout)
+
+        self.ma = nn.MultiheadAttention(hidden_size, num_heads, dropout, batch_first=True, device=device)
 
     def forward(self, x, att_mask=None):
         # batch size, sequence size, embedding dimension
-        N, S, _ = x.shape
-        H = self.num_heads
-        q = self.query(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
-        k = self.key(x).view(N, S, H, self.d_k).transpose(1, 2)     # (N, H, S, dk)
-        v = self.value(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
+        # N, S, _ = x.shape
+        # H = self.num_heads
+        # q = self.query(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
+        # k = self.key(x).view(N, S, H, self.d_k).transpose(1, 2)     # (N, H, S, dk)
+        # v = self.value(x).view(N, S, H, self.d_k).transpose(1, 2)  # (N, H, S, dk)
 
-        att = torch.matmul(q, k.transpose(2, 3)) / self.scaled_dk  # Scaled Dot Product Attention
-        if att_mask != None:
-            att_mask = att_mask.view(att_mask.shape[0], 1, 1, att_mask.shape[1])
-            att = self.dropout(masked_softmax(att, att_mask))
-        else:
-            att = self.dropout(F.softmax(att, dim=-1))  # (N, H, S, T)
+        # att = torch.matmul(q, k.transpose(2, 3)) / self.scaled_dk  # Scaled Dot Product Attention
+        # if att_mask != None:
+        #     att_mask = att_mask.view(att_mask.shape[0], 1, 1, att_mask.shape[1])
+        #     att = self.dropout(masked_softmax(att, att_mask))
+        # else:
+        #     att = self.dropout(F.softmax(att, dim=-1))  # (N, H, S, T)
 
-        y = torch.matmul(att, v).transpose(1, 2).contiguous().view(N, S, -1)
+        # y = torch.matmul(att, v).transpose(1, 2).contiguous().view(N, S, -1)
 
-        return self.proj(y)
+        # return self.proj(y)
+        attn_output, _ = self.ma(x, x, x, key_padding_mask = att_mask.int())
+        return attn_output
+
 
 
 class ResidualBlock(nn.Module):
