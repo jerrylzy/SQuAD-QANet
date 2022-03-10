@@ -170,9 +170,9 @@ class QANet(nn.Module):
         att = self.proj(att) if self.proj != None else att
 
         # stackd encoder blocks share weights among its three repetitions
-        att_emb_1 = self.mod(att)
-        att_emb_2 = self.mod(att_emb_1)
-        att_emb_3 = self.mod(att_emb_2)
+        att_emb_1 = self.mod(att, c_mask)
+        att_emb_2 = self.mod(att_emb_1, c_mask)
+        att_emb_3 = self.mod(att_emb_2, c_mask)
 
         # 2 tensors, each (batch_size, c_len)
         out = self.out(att_emb_1, att_emb_2, att_emb_3, c_mask)
