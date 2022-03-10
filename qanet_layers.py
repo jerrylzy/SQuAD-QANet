@@ -8,7 +8,7 @@ from util import masked_softmax, stochastic_depth_layer_dropout, get_available_d
 device, _ = get_available_devices()
 
 
-class DepthWiseSeparableConv1D(nn.Module):
+class DepthWiseSeparableConv1d(nn.Module):
     """
     Depth-wise Separable Convolution
     """
@@ -22,13 +22,15 @@ class DepthWiseSeparableConv1D(nn.Module):
                                     padding=kernel_size // 2,
                                     bias=False,
                                     device=device)
-        nn.init.xavier_uniform_(self.depth_conv.weight)
         self.point_conv = nn.Conv1d(in_channels=hidden_size,
                                     out_channels=hidden_size,
                                     kernel_size=1,
                                     bias=False,
                                     device=device)
+        nn.init.xavier_uniform_(self.depth_conv.weight)
+        nn.init.constant_(self.depth_conv.bias, 0.0)
         nn.init.kaiming_normal_(self.point_conv.weight, nonlinearity='leaky_relu')
+        nn.init.constant_(self.point_conv.bias, 0.0)
 
     def forward(self, x):
         depth = self.depth_conv(x.transpose(1, 2))
@@ -54,7 +56,7 @@ class EncoderBlock(nn.Module):
         # Conv
         self.conv = nn.Sequential(
             *[ResidualBlock(
-                DepthWiseSeparableConv1D(hidden_size, kernel_size),
+                DepthWiseSeparableConv1d(hidden_size, kernel_size),
                 hidden_size=hidden_size,
                 residual_dropout_p=stochastic_depth_layer_dropout(self.drop_prob, base_layer_num + i, self.total_num_layers)) for i in range(num_conv_layers)])
 
