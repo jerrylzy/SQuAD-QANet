@@ -28,13 +28,13 @@ class DepthWiseSeparableConv1D(nn.Module):
                                     kernel_size=1,
                                     bias=False,
                                     device=device)
-        nn.init.kaiming_normal_(self.point_conv.weight, nonlinearity='relu')
+        nn.init.kaiming_normal_(self.point_conv.weight, nonlinearity='leaky_relu')
 
     def forward(self, x):
         depth = self.depth_conv(x.transpose(1, 2))
         point = self.point_conv(depth).transpose(1, 2)
 
-        return F.relu(point)
+        return F.leaky_relu(point)
 
 
 class EncoderBlock(nn.Module):

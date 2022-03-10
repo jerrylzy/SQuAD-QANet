@@ -49,7 +49,7 @@ class FeedForward(nn.Module):
 
     def forward(self, x):
         # return self.l2(self.l1(x))
-        return self.l2(F.relu(self.l1(x)))
+        return self.l2(F.leaky_relu(self.l1(x)))
 
 
 class CharCNN(nn.Module):
@@ -60,12 +60,12 @@ class CharCNN(nn.Module):
     def __init__(self, char_emb_dim, hidden_size, kernel_width=5, drop_prob=0.05, char_limit=16):
         super().__init__()
         self.conv = nn.Conv2d(char_emb_dim, hidden_size, (1, kernel_width), padding=(0, kernel_width // 2), device=device) # Based on BiDAF's paper
-        nn.init.kaiming_normal_(self.conv.weight, nonlinearity='relu')
+        nn.init.kaiming_normal_(self.conv.weight, nonlinearity='leaky_relu')
         self.maxpool = nn.MaxPool2d((1, char_limit))
         self.dropout = nn.Dropout(drop_prob)
 
     def forward(self, x):
-        emb = F.relu(self.conv(x))
+        emb = F.leaky_relu(self.conv(x))
         emb = self.maxpool(emb)
         emb = self.dropout(emb)
         return emb.squeeze(3)
@@ -81,13 +81,13 @@ class Conv1dLinear(nn.Module):
         self.use_relu = use_relu
 
         if use_relu:
-            nn.init.kaiming_normal_(self.conv.weight, nonlinearity='relu')
+            nn.init.kaiming_normal_(self.conv.weight, nonlinearity='leaky_relu')
         else:
             nn.init.xavier_uniform_(self.conv.weight)
 
     def forward(self, x):
         y = self.conv(x.transpose(1, 2)).transpose(1, 2)
-        return F.relu(y) if self.use_relu else y
+        return F.leaky_relu(y) if self.use_relu else y
 
 
 class Embedding(nn.Module):
@@ -169,7 +169,7 @@ class HighwayEncoder(nn.Module):
         for gate, transform in zip(self.gates, self.transforms):
             # Shapes of g, t, and x are all (batch_size, seq_len, hidden_size)
             g = torch.sigmoid(gate(x))
-            t = F.relu(transform(x))
+            t = F.leaky_relu(transform(x))
             x = g * t + (1 - g) * x
 
         return x
