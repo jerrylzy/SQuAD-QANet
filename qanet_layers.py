@@ -28,9 +28,7 @@ class DepthWiseSeparableConv1d(nn.Module):
                                     bias=False,
                                     device=device)
         nn.init.xavier_uniform_(self.depth_conv.weight)
-        nn.init.constant_(self.depth_conv.bias, 0.0)
         nn.init.kaiming_normal_(self.point_conv.weight, nonlinearity='leaky_relu')
-        nn.init.constant_(self.point_conv.bias, 0.0)
 
     def forward(self, x):
         depth = self.depth_conv(x.transpose(1, 2))
@@ -51,7 +49,7 @@ class EncoderBlock(nn.Module):
         self.drop_prob = dropout
 
         # Pos Encoding
-        self.pe = PositionalEncoding(emb_size=hidden_size)
+        self.pe = PositionalEncoding(hidden_size, dropout)
 
         # Conv
         self.conv = nn.Sequential(
