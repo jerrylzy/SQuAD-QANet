@@ -42,10 +42,10 @@ class FeedForward(nn.Module):
 
     def __init__(self, hidden_size, input_size = None, output_size = None):
         super().__init__()
-        self.l1 = nn.Linear(input_size if input_size != None else hidden_size, hidden_size, device=device)
-        self.l2 = nn.Linear(hidden_size, output_size if output_size != None else hidden_size, device=device)
-        # self.l1 = Conv1dLinear(input_size if input_size != None else hidden_size, hidden_size, use_relu=True)
-        # self.l2 = Conv1dLinear(hidden_size, output_size if output_size != None else hidden_size)
+        # self.l1 = nn.Linear(input_size if input_size != None else hidden_size, hidden_size, device=device)
+        # self.l2 = nn.Linear(hidden_size, output_size if output_size != None else hidden_size, device=device)
+        self.l1 = Conv1dLinear(input_size if input_size != None else hidden_size, hidden_size, use_relu=True)
+        self.l2 = Conv1dLinear(hidden_size, output_size if output_size != None else hidden_size)
 
     def forward(self, x):
         # return self.l2(self.l1(x))
@@ -124,7 +124,7 @@ class Embedding(nn.Module):
         self.word_dropout = nn.Dropout(drop_prob)
         emb_dim = word_vectors.size(1) + (hidden_size if use_char_cnn else self.CHAR_LIMIT * char_emb_dim)
 
-        self.proj = nn.Linear(emb_dim, hidden_size, bias=False)
+        self.proj = Conv1dLinear(emb_dim, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, w_idx, c_idx):
@@ -229,24 +229,24 @@ class PositionalEncoding(nn.Module):
     Fixed positional encoding layer
     """
 
-    def __init__(self, emb_size, max_len=1024):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 1024):
         super().__init__()
-        # self.dropout = nn.Dropout(p=dropout)
-        assert emb_size % 2 == 0
+        self.dropout = nn.Dropout(p=dropout)
 
-        pe = torch.zeros(1, max_len, emb_size, device=device)
-        i = torch.arange(0, max_len).repeat((emb_size // 2, 1)).T
-        j = torch.arange(0, emb_size, 2)
-        index = i * 10000 ** (-j / emb_size)
-        pe[:, :, 0::2] = torch.sin(index)
-        pe[:, :, 1::2] = torch.cos(index)
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, 1, d_model, device=device)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
         self.register_buffer('pe', pe)
 
-    def forward(self, x):
-        # x.shape = batch size, sequence size, embedding dimension
-        # output = self.dropout(x + self.pe[:, :x.shape[1], :])
-        output = x + self.pe[:, :x.shape[1], :]
-        return output
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: Tensor, shape [seq_len, batch_size, embedding_dim]
+        """
+        x = x + self.pe[:x.size(0)]
+        return self.dropout(x)
 
 
 class MultiHeadAttention(nn.Module):
@@ -380,6 +380,7 @@ class BiDAFOutput(nn.Module):
         super(BiDAFOutput, self).__init__()
         self.att_linear_1 = nn.Linear(10 * hidden_size, 1)
         self.mod_linear_1 = nn.Linear(4 * hidden_size, 1)
+        self.dropout_1 = nn.Dropout(drop_prob)
 
         self.rnn = RNNEncoder(input_size=4 * hidden_size,
                               hidden_size=2 * hidden_size,
@@ -388,12 +389,13 @@ class BiDAFOutput(nn.Module):
 
         self.att_linear_2 = nn.Linear(10 * hidden_size, 1)
         self.mod_linear_2 = nn.Linear(4 * hidden_size, 1)
+        self.dropout_2 = nn.Dropout(drop_prob)
 
     def forward(self, att, mod, mask):
         # Shapes: (batch_size, seq_len, 1)
-        logits_1 = self.att_linear_1(att) + self.mod_linear_1(mod)
+        logits_1 = self.dropout_1(self.att_linear_1(att) + self.mod_linear_1(mod))
         mod_2 = self.rnn(mod, mask.sum(-1))
-        logits_2 = self.att_linear_2(att) + self.mod_linear_2(mod_2)
+        logits_2 = self.dropout_2(self.att_linear_2(att) + self.mod_linear_2(mod_2))
 
         # Shapes: (batch_size, seq_len)
         log_p1 = masked_softmax(logits_1.squeeze(), mask, log_softmax=True)
