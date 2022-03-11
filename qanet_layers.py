@@ -90,14 +90,14 @@ class StackedEmbeddingEncoderBlock(nn.Module):
     def __init__(self, hidden_size, num_blocks, num_heads=8, dropout=0.1, kernel_size=7, num_conv_layers=4):
         super().__init__()
         total_num_layers = (num_conv_layers + 2) * num_blocks
-        self.encoders = [EncoderBlock(
+        self.encoders = nn.ModuleList([EncoderBlock(
                 hidden_size=hidden_size,
                 num_heads=num_heads,
                 dropout=dropout,
                 kernel_size=kernel_size,
                 num_conv_layers=num_conv_layers,
                 base_layer_num=num_block + 1,
-                total_num_layers=total_num_layers) for num_block in range(num_blocks)]
+                total_num_layers=total_num_layers) for num_block in range(num_blocks)])
 
     def forward(self, x, mask=None):
         for encoder in self.encoders:
