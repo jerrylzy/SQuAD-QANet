@@ -42,10 +42,10 @@ class FeedForward(nn.Module):
 
     def __init__(self, hidden_size, input_size = None, output_size = None):
         super().__init__()
-        # self.l1 = nn.Linear(input_size if input_size != None else hidden_size, hidden_size, device=device)
-        # self.l2 = nn.Linear(hidden_size, output_size if output_size != None else hidden_size, device=device)
-        self.l1 = Conv1dLinear(input_size if input_size != None else hidden_size, hidden_size, use_relu=True)
-        self.l2 = Conv1dLinear(hidden_size, output_size if output_size != None else hidden_size)
+        self.l1 = nn.Linear(input_size if input_size != None else hidden_size, hidden_size, device=device)
+        self.l2 = nn.Linear(hidden_size, output_size if output_size != None else hidden_size, device=device)
+        # self.l1 = Conv1dLinear(input_size if input_size != None else hidden_size, hidden_size, use_relu=True)
+        # self.l2 = Conv1dLinear(hidden_size, output_size if output_size != None else hidden_size)
 
     def forward(self, x):
         # return self.l2(self.l1(x))
@@ -124,7 +124,8 @@ class Embedding(nn.Module):
         self.word_dropout = nn.Dropout(drop_prob)
         emb_dim = word_vectors.size(1) + (hidden_size if use_char_cnn else self.CHAR_LIMIT * char_emb_dim)
 
-        self.proj = Conv1dLinear(emb_dim, hidden_size, bias=False)
+        # self.proj = Conv1dLinear(emb_dim, hidden_size, bias=False)
+        self.proj = nn.Linear(emb_dim, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, w_idx, c_idx):
@@ -138,10 +139,11 @@ class Embedding(nn.Module):
             char_emb = self.char_conv(char_emb.permute(0, 3, 1, 2)).permute(0, 2, 1) # (batch_size, seq_len, embed_size)
 
         emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
-        emb = F.dropout(emb, stochastic_depth_layer_dropout(self.drop_prob, 1, self.num_layers), self.training)
+        # emb = F.dropout(emb, stochastic_depth_layer_dropout(self.drop_prob, 1, self.num_layers), self.training)
+        # emb = F.dropout(emb, self.drop_prob, self.training)
         emb = self.proj(emb)  # (batch_size, seq_len, embed_size)
         emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
-        emb = F.dropout(emb, self.drop_prob, self.training)
+        # emb = F.dropout(emb, self.drop_prob, self.training)
 
         return emb
 

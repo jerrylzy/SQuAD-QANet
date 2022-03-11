@@ -82,9 +82,10 @@ def main(args):
 
     # Get optimizer and scheduler
     if args.qanet:
-        optimizer = optim.Adam(model.parameters(), args.lr, betas=(0.8, 0.999), eps=1e-7, weight_decay=3 * 1e-7)
+        optimizer = optim.Adam(model.parameters(), args.lr, betas=(0.8, 0.999), eps=1e-7, weight_decay=args.l2_wd)
         ema = util.EMA(model, 0.9999)
         scheduler = sched.LambdaLR(optimizer, lambda step: 1 - 0.9 ** step if step <= 1e3 else 1)  # Exp warmup, constant LR
+        # scheduler = sched.LambdaLR(optimizer, lambda step: 1)  # Constant LR
     else:
         ema = util.EMA(model, args.ema_decay)
         optimizer = optim.Adadelta(model.parameters(), args.lr, weight_decay=args.l2_wd)

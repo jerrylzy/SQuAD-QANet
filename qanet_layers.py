@@ -1,4 +1,3 @@
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -90,14 +89,14 @@ class StackedEmbeddingEncoderBlock(nn.Module):
     def __init__(self, hidden_size, num_blocks, num_heads=8, dropout=0.1, kernel_size=7, num_conv_layers=4):
         super().__init__()
         total_num_layers = (num_conv_layers + 2) * num_blocks
-        self.encoders = [EncoderBlock(
+        self.encoders = nn.ModuleList([EncoderBlock(
                 hidden_size=hidden_size,
                 num_heads=num_heads,
                 dropout=dropout,
                 kernel_size=kernel_size,
                 num_conv_layers=num_conv_layers,
                 base_layer_num=num_block + 1,
-                total_num_layers=total_num_layers) for num_block in range(num_blocks)]
+                total_num_layers=total_num_layers) for num_block in range(num_blocks)])
 
     def forward(self, x, mask=None):
         for encoder in self.encoders:
@@ -118,15 +117,17 @@ class QANetOutput(nn.Module):
         hidden_size (int): Hidden size used in the BiDAF model.
     """
 
-    def __init__(self, hidden_size):
+    def __init__(self, hidden_size, drop_prob):
         super().__init__()
         self.att_linear_1 = nn.Linear(2 * hidden_size, 1, device=device)
+        self.dropout_1 = nn.Dropout(drop_prob)
         self.att_linear_2 = nn.Linear(2 * hidden_size, 1, device=device)
+        self.dropout_2 = nn.Dropout(drop_prob)
 
     def forward(self, emb_1, emb_2, emb_3, mask):
         # Shapes: (batch_size, seq_len, 1)
-        logits_1 = self.att_linear_1(torch.cat((emb_1, emb_2), dim=2))
-        logits_2 = self.att_linear_2(torch.cat((emb_1, emb_3), dim=2))
+        logits_1 = self.dropout_1(self.att_linear_1(torch.cat((emb_1, emb_2), dim=2)))
+        logits_2 = self.dropout_2(self.att_linear_2(torch.cat((emb_1, emb_3), dim=2)))
 
         # Shapes: (batch_size, seq_len)
         log_p1 = masked_softmax(logits_1.squeeze(), mask, log_softmax=True)

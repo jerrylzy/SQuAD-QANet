@@ -161,19 +161,19 @@ class QANet(nn.Module):
             num_conv_layers=2
         )
 
-        self.out = qanet_layers.QANetOutput(hidden_size=hidden_size if project else 4 * hidden_size)
+        self.out = qanet_layers.QANetOutput(hidden_size=hidden_size if project else 4 * hidden_size, drop_prob=drop_prob)
 
-        self.apply(self._init_weights)
+    #     self.apply(self._init_weights)
 
 
-    def _init_weights(self, module):
-        if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=0.02)
-            if isinstance(module, nn.Linear) and module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.LayerNorm):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
+    # def _init_weights(self, module):
+    #     if isinstance(module, (nn.Linear, nn.Embedding)):
+    #         module.weight.data.normal_(mean=0.0, std=0.02)
+    #         if isinstance(module, nn.Linear) and module.bias is not None:
+    #             module.bias.data.zero_()
+    #     elif isinstance(module, nn.LayerNorm):
+    #         module.bias.data.zero_()
+    #         module.weight.data.fill_(1.0)
 
 
     def forward(self, cw_idxs, cc_idxs, qw_idxs, qc_idxs):
@@ -194,9 +194,9 @@ class QANet(nn.Module):
         att = self.mod_proj(att) if self.mod_proj != None else att
 
         # stackd encoder blocks share weights among its three repetitions
-        att_emb_1 = F.dropout(self.mod(att, c_mask), self.drop_prob, self.training)
-        att_emb_2 = F.dropout(self.mod(att_emb_1, c_mask), self.drop_prob, self.training)
-        att_emb_3 = F.dropout(self.mod(att_emb_2, c_mask), self.drop_prob, self.training)
+        att_emb_1 = self.mod(att, c_mask)
+        att_emb_2 = self.mod(att_emb_1, c_mask)
+        att_emb_3 = self.mod(att_emb_2, c_mask)
 
         # 2 tensors, each (batch_size, c_len)
         out = self.out(att_emb_1, att_emb_2, att_emb_3, c_mask)
