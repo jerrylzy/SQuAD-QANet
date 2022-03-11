@@ -24,10 +24,11 @@ class DepthWiseSeparableConv1d(nn.Module):
         self.point_conv = nn.Conv1d(in_channels=hidden_size,
                                     out_channels=hidden_size,
                                     kernel_size=1,
-                                    bias=False,
+                                    bias=True,
                                     device=device)
         nn.init.xavier_uniform_(self.depth_conv.weight)
         nn.init.kaiming_normal_(self.point_conv.weight, nonlinearity='leaky_relu')
+        nn.init.constant_(self.point_conv.bias, 0.0)
 
     def forward(self, x):
         depth = self.depth_conv(x.transpose(1, 2))
