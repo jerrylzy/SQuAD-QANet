@@ -118,15 +118,17 @@ class QANetOutput(nn.Module):
         hidden_size (int): Hidden size used in the BiDAF model.
     """
 
-    def __init__(self, hidden_size):
+    def __init__(self, hidden_size, drop_prob):
         super().__init__()
         self.att_linear_1 = nn.Linear(2 * hidden_size, 1, device=device)
+        self.dropout_1 = nn.Dropout(drop_prob)
         self.att_linear_2 = nn.Linear(2 * hidden_size, 1, device=device)
+        self.dropout_2 = nn.Dropout(drop_prob)
 
     def forward(self, emb_1, emb_2, emb_3, mask):
         # Shapes: (batch_size, seq_len, 1)
-        logits_1 = self.att_linear_1(torch.cat((emb_1, emb_2), dim=2))
-        logits_2 = self.att_linear_2(torch.cat((emb_1, emb_3), dim=2))
+        logits_1 = self.dropout_1(self.att_linear_1(torch.cat((emb_1, emb_2), dim=2)))
+        logits_2 = self.dropout_2(self.att_linear_2(torch.cat((emb_1, emb_3), dim=2)))
 
         # Shapes: (batch_size, seq_len)
         log_p1 = masked_softmax(logits_1.squeeze(), mask, log_softmax=True)
