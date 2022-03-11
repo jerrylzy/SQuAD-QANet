@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from layers import FeedForward, ResidualBlock, PositionalEncoding, MultiHeadAttention
+from layers import Conv1dLinear, FeedForward, ResidualBlock, PositionalEncoding, MultiHeadAttention
 from util import masked_softmax, stochastic_depth_layer_dropout, get_available_devices
 device, _ = get_available_devices()
 
@@ -27,14 +27,14 @@ class DepthWiseSeparableConv1d(nn.Module):
                                     bias=True,
                                     device=device)
         nn.init.xavier_uniform_(self.depth_conv.weight)
-        nn.init.kaiming_normal_(self.point_conv.weight, nonlinearity='leaky_relu')
+        nn.init.kaiming_normal_(self.point_conv.weight, nonlinearity='relu')
         nn.init.constant_(self.point_conv.bias, 0.0)
 
     def forward(self, x):
         depth = self.depth_conv(x.transpose(1, 2))
         point = self.point_conv(depth).transpose(1, 2)
 
-        return F.leaky_relu(point)
+        return F.relu(point)
 
 
 class EncoderBlock(nn.Module):
@@ -120,9 +120,9 @@ class QANetOutput(nn.Module):
 
     def __init__(self, hidden_size, drop_prob):
         super().__init__()
-        self.att_linear_1 = nn.Linear(2 * hidden_size, 1, device=device)
+        self.att_linear_1 = Conv1dLinear(2 * hidden_size, 1, bias=False)
         self.dropout_1 = nn.Dropout(drop_prob)
-        self.att_linear_2 = nn.Linear(2 * hidden_size, 1, device=device)
+        self.att_linear_2 = Conv1dLinear(2 * hidden_size, 1, bias=False)
         self.dropout_2 = nn.Dropout(drop_prob)
 
     def forward(self, emb_1, emb_2, emb_3, mask):

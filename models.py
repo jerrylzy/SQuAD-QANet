@@ -150,7 +150,7 @@ class QANet(nn.Module):
         self.att = layers.BiDAFAttention(hidden_size=hidden_size,
                                          drop_prob=drop_prob)
 
-        self.mod_proj = nn.Linear(4 * hidden_size, hidden_size, bias=False) if project else None
+        self.mod_proj = layers.Conv1dLinear(4 * hidden_size, hidden_size, bias=False) if project else None
 
         self.mod = qanet_layers.StackedEmbeddingEncoderBlock(
             hidden_size=hidden_size if project else 4 * hidden_size,
@@ -163,17 +163,20 @@ class QANet(nn.Module):
 
         self.out = qanet_layers.QANetOutput(hidden_size=hidden_size if project else 4 * hidden_size, drop_prob=drop_prob)
 
-    #     self.apply(self._init_weights)
+        self.apply(self._init_weights)
 
 
-    # def _init_weights(self, module):
-    #     if isinstance(module, (nn.Linear, nn.Embedding)):
-    #         module.weight.data.normal_(mean=0.0, std=0.02)
-    #         if isinstance(module, nn.Linear) and module.bias is not None:
-    #             module.bias.data.zero_()
-    #     elif isinstance(module, nn.LayerNorm):
-    #         module.bias.data.zero_()
-    #         module.weight.data.fill_(1.0)
+    def _init_weights(self, module):
+        # if isinstance(module, (nn.Linear, nn.Embedding)):
+        #     module.weight.data.normal_(mean=0.0, std=0.02)
+        #     if isinstance(module, nn.Linear) and module.bias is not None:
+        #         module.bias.data.zero_()
+        # elif isinstance(module, nn.LayerNorm):
+        #     module.bias.data.zero_()
+        #     module.weight.data.fill_(1.0)
+        if isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
 
 
     def forward(self, cw_idxs, cc_idxs, qw_idxs, qc_idxs):

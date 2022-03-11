@@ -42,14 +42,14 @@ class FeedForward(nn.Module):
 
     def __init__(self, hidden_size, input_size = None, output_size = None):
         super().__init__()
-        self.l1 = nn.Linear(input_size if input_size != None else hidden_size, hidden_size, device=device)
-        self.l2 = nn.Linear(hidden_size, output_size if output_size != None else hidden_size, device=device)
-        # self.l1 = Conv1dLinear(input_size if input_size != None else hidden_size, hidden_size, use_relu=True)
-        # self.l2 = Conv1dLinear(hidden_size, output_size if output_size != None else hidden_size)
+        # self.l1 = nn.Linear(input_size if input_size != None else hidden_size, hidden_size, device=device)
+        # self.l2 = nn.Linear(hidden_size, output_size if output_size != None else hidden_size, device=device)
+        self.l1 = Conv1dLinear(input_size if input_size != None else hidden_size, hidden_size, use_relu=True)
+        self.l2 = Conv1dLinear(hidden_size, output_size if output_size != None else hidden_size)
 
     def forward(self, x):
-        # return self.l2(self.l1(x))
-        return self.l2(F.leaky_relu(self.l1(x)))
+        return self.l2(self.l1(x))
+        # return self.l2(F.relu(self.l1(x)))
 
 
 class CharCNN(nn.Module):
@@ -60,7 +60,7 @@ class CharCNN(nn.Module):
     def __init__(self, char_emb_dim, hidden_size, kernel_width=5, drop_prob=0.05, char_limit=16):
         super().__init__()
         self.conv = nn.Conv2d(char_emb_dim, hidden_size, (1, kernel_width), padding=(0, kernel_width // 2), device=device) # Based on BiDAF's paper
-        nn.init.kaiming_normal_(self.conv.weight, nonlinearity='leaky_relu')
+        nn.init.kaiming_normal_(self.conv.weight, nonlinearity='relu')
         self.bm = nn.BatchNorm2d(hidden_size)
         self.maxpool = nn.MaxPool2d((1, char_limit))
         self.dropout = nn.Dropout(drop_prob)
@@ -68,7 +68,7 @@ class CharCNN(nn.Module):
     def forward(self, x):
         emb = self.conv(x)
         emb = self.bm(emb)
-        emb = F.leaky_relu(emb)
+        emb = F.relu(emb)
         emb = self.maxpool(emb)
         return self.dropout(emb).squeeze(3)
 
@@ -83,13 +83,13 @@ class Conv1dLinear(nn.Module):
         self.use_relu = use_relu
 
         if use_relu:
-            nn.init.kaiming_normal_(self.conv.weight, nonlinearity='leaky_relu')
+            nn.init.kaiming_normal_(self.conv.weight, nonlinearity='relu')
         else:
             nn.init.xavier_uniform_(self.conv.weight)
 
     def forward(self, x):
         y = self.conv(x.transpose(1, 2)).transpose(1, 2)
-        return F.leaky_relu(y) if self.use_relu else y
+        return F.relu(y) if self.use_relu else y
 
 
 class Embedding(nn.Module):
@@ -126,8 +126,8 @@ class Embedding(nn.Module):
         self.word_dropout = nn.Dropout(drop_prob)
         emb_dim = word_vectors.size(1) + (hidden_size if use_char_cnn else self.CHAR_LIMIT * char_emb_dim)
 
-        # self.proj = Conv1dLinear(emb_dim, hidden_size, bias=False)
-        self.proj = nn.Linear(emb_dim, hidden_size, bias=False)
+        self.proj = Conv1dLinear(emb_dim, hidden_size, bias=False)
+        # self.proj = nn.Linear(emb_dim, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, w_idx, c_idx):
@@ -164,16 +164,16 @@ class HighwayEncoder(nn.Module):
     """
     def __init__(self, num_layers, hidden_size):
         super(HighwayEncoder, self).__init__()
-        self.transforms = nn.ModuleList([nn.Linear(hidden_size, hidden_size, device=device)
+        self.transforms = nn.ModuleList([Conv1dLinear(hidden_size, hidden_size)
                                          for _ in range(num_layers)])
-        self.gates = nn.ModuleList([nn.Linear(hidden_size, hidden_size, device=device)
+        self.gates = nn.ModuleList([Conv1dLinear(hidden_size, hidden_size)
                                     for _ in range(num_layers)])
 
     def forward(self, x):
         for gate, transform in zip(self.gates, self.transforms):
             # Shapes of g, t, and x are all (batch_size, seq_len, hidden_size)
             g = torch.sigmoid(gate(x))
-            t = F.leaky_relu(transform(x))
+            t = F.relu(transform(x))
             x = g * t + (1 - g) * x
 
         return x
