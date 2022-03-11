@@ -85,7 +85,6 @@ def main(args):
         ema = util.EMA(model, args.ema_decay)
         optimizer = optim.Adadelta(model.parameters(), args.lr, weight_decay=args.l2_wd)
 
-    # 
     scheduler = sched.LambdaLR(optimizer, lambda epoch: 1)  # Constant LR
 
     # Get data loader

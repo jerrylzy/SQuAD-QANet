@@ -8,6 +8,8 @@ import layers
 import qanet_layers
 import torch
 import torch.nn as nn
+from util import get_available_devices
+device, _ = get_available_devices()
 
 
 class BiDAF(nn.Module):
@@ -60,8 +62,8 @@ class BiDAF(nn.Module):
                                       drop_prob=drop_prob)
 
     def forward(self, cw_idxs, cc_idxs, qw_idxs, qc_idxs):
-        c_mask = torch.zeros_like(cw_idxs) != cw_idxs
-        q_mask = torch.zeros_like(qw_idxs) != qw_idxs
+        c_mask = torch.zeros_like(cw_idxs, device=device) != cw_idxs
+        q_mask = torch.zeros_like(qw_idxs, device=device) != qw_idxs
         c_len, q_len = c_mask.sum(-1), q_mask.sum(-1)
 
         # (batch_size, c_len, hidden_size)

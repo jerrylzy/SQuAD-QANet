@@ -4,7 +4,6 @@ Author:
     Chris Chute (chute@stanford.edu)
 """
 
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -49,24 +48,31 @@ class Embedding(nn.Module):
         super(Embedding, self).__init__()
         self.drop_prob = drop_prob
         vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
-        self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
+        self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0, device=device)
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
 
-        # self.char_conv = CharCNN(char_emb_dim=char_emb_dim, hidden_size=hidden_size, kernel_width=5, drop_prob=drop_prob, char_limit=self.CHAR_LIMIT)
-        # self.proj = nn.Linear(word_vectors.size(1) + hidden_size, hidden_size, bias=False)
+        self.char_conv = CharCNN(
+            char_emb_dim=char_emb_dim,
+            hidden_size=hidden_size,
+            kernel_width=5,
+            drop_prob=drop_prob,
+            char_limit=self.CHAR_LIMIT)
+        self.proj = nn.Linear(word_vectors.size(1) + hidden_size, hidden_size, bias=False, device=device)
 
-        self.proj = nn.Linear(word_vectors.size(1) + char_vectors.size(1) * self.CHAR_LIMIT, hidden_size, bias=False)
+        # self.proj = nn.Linear(word_vectors.size(1) + char_vectors.size(1) * self.CHAR_LIMIT, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, w_idx, c_idx):
         word_emb = self.word_embed(w_idx)   # (batch_size, seq_len, word_embed_size)
         char_emb = self.char_embed(c_idx)   # (batch_size, seq_len, char_limit, char_embed_size)
+        word_emb = F.dropout(word_emb, self.drop_prob, self.training)
+        # char_emb = F.dropout(char_emb, 0.05, self.training)
 
-        # char_emb = self.char_conv(char_emb.permute(0, 3, 1, 2)).permute(0, 2, 1) # (batch_size, seq_len, embed_size)
-        # emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
+        char_emb = self.char_conv(char_emb.permute(0, 3, 1, 2)).permute(0, 2, 1) # (batch_size, seq_len, embed_size)
+        emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
 
-        emb = torch.cat((word_emb, char_emb.view(*char_emb.shape[:2], -1)), dim=2)   # (batch_size, seq_len, embed_size)
-        emb = F.dropout(emb, self.drop_prob, self.training)
+        # emb = torch.cat((word_emb, char_emb.view(*char_emb.shape[:2], -1)), dim=2)   # (batch_size, seq_len, embed_size)
+        # emb = F.dropout(emb, self.drop_prob, self.training)
         emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
         emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
 
@@ -87,9 +93,9 @@ class HighwayEncoder(nn.Module):
     """
     def __init__(self, num_layers, hidden_size):
         super(HighwayEncoder, self).__init__()
-        self.transforms = nn.ModuleList([nn.Linear(hidden_size, hidden_size)
+        self.transforms = nn.ModuleList([nn.Linear(hidden_size, hidden_size, device=device)
                                          for _ in range(num_layers)])
-        self.gates = nn.ModuleList([nn.Linear(hidden_size, hidden_size)
+        self.gates = nn.ModuleList([nn.Linear(hidden_size, hidden_size, device=device)
                                     for _ in range(num_layers)])
 
     def forward(self, x):
@@ -157,9 +163,9 @@ class PositionalEncoding(nn.Module):
     def __init__(self, hidden_size, dropout=0.1, max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
-        # assert hidden_size % 2 == 0
+        assert hidden_size % 2 == 0
 
-        pe = torch.zeros(1, max_len, hidden_size)
+        pe = torch.zeros(1, max_len, hidden_size, device=device)
         i = torch.arange(0, max_len).repeat((hidden_size // 2, 1)).T
         j = torch.arange(0, hidden_size, 2)
         index = i * 10000 ** (-j / hidden_size)
@@ -195,22 +201,25 @@ class SelfAttention(nn.Module):
     def __init__(self, hidden_size, num_heads, dropout=0.1):
         super(SelfAttention, self).__init__()
 
+
         # Attention
         self.pe = PositionalEncoding(hidden_size, dropout)
+        self.layer_norm_0 = nn.LayerNorm(hidden_size, device=device)
         self.multihead_att = MultiHeadAttention(hidden_size, num_heads, dropout)
         self.residual_dropout_1 = nn.Dropout(dropout)
-        self.layer_norm_1 = nn.LayerNorm(hidden_size)
+        self.layer_norm_1 = nn.LayerNorm(hidden_size, device=device)
 
         # Feed Forward
-        self.linear_1 = nn.Linear(hidden_size, hidden_size)
-        self.linear_2 = nn.Linear(hidden_size, hidden_size)
+        self.linear_1 = nn.Linear(hidden_size, hidden_size, device=device)
+        self.linear_2 = nn.Linear(hidden_size, hidden_size, device=device)
         self.residual_dropout_2 = nn.Dropout(dropout)
-        self.layer_norm_2 = nn.LayerNorm(hidden_size)
+        self.layer_norm_2 = nn.LayerNorm(hidden_size, device=device)
 
     def forward(self, x, mask=None):
         # Add positional encoding
         x = self.pe(x)
         # MultiHeadAttention
+        x = self.layer_norm_0(x)
         att = self.residual_dropout_1(self.multihead_att(x, mask))
         att = self.layer_norm_1(att + x)
         # FF
@@ -239,12 +248,12 @@ class BiDAFAttention(nn.Module):
     def __init__(self, hidden_size, drop_prob=0.1):
         super(BiDAFAttention, self).__init__()
         self.drop_prob = drop_prob
-        self.c_weight = nn.Parameter(torch.zeros(hidden_size, 1))
-        self.q_weight = nn.Parameter(torch.zeros(hidden_size, 1))
-        self.cq_weight = nn.Parameter(torch.zeros(1, 1, hidden_size))
+        self.c_weight = nn.Parameter(torch.zeros(hidden_size, 1, device=device))
+        self.q_weight = nn.Parameter(torch.zeros(hidden_size, 1, device=device))
+        self.cq_weight = nn.Parameter(torch.zeros(1, 1, hidden_size, device=device))
         for weight in (self.c_weight, self.q_weight, self.cq_weight):
             nn.init.xavier_uniform_(weight)
-        self.bias = nn.Parameter(torch.zeros(1))
+        self.bias = nn.Parameter(torch.zeros(1, device=device))
 
     def forward(self, c, q, c_mask, q_mask):
         batch_size, c_len, _ = c.size()
@@ -304,8 +313,8 @@ class BiDAFOutput(nn.Module):
     """
     def __init__(self, hidden_size, drop_prob):
         super(BiDAFOutput, self).__init__()
-        self.att_linear_1 = nn.Linear(10 * hidden_size, 1)
-        self.mod_linear_1 = nn.Linear(4 * hidden_size, 1)
+        self.att_linear_1 = nn.Linear(10 * hidden_size, 1, device=device)
+        self.mod_linear_1 = nn.Linear(4 * hidden_size, 1, device=device)
         self.dropout_1 = nn.Dropout(drop_prob)
 
         self.rnn = RNNEncoder(input_size=4 * hidden_size,
@@ -313,8 +322,8 @@ class BiDAFOutput(nn.Module):
                               num_layers=1,
                               drop_prob=drop_prob)
 
-        self.att_linear_2 = nn.Linear(10 * hidden_size, 1)
-        self.mod_linear_2 = nn.Linear(4 * hidden_size, 1)
+        self.att_linear_2 = nn.Linear(10 * hidden_size, 1, device=device)
+        self.mod_linear_2 = nn.Linear(4 * hidden_size, 1, device=device)
         self.dropout_2 = nn.Dropout(drop_prob)
 
     def forward(self, att, mod, mask):
