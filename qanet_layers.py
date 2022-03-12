@@ -168,7 +168,7 @@ class FeedForward(nn.Module):
         self.linear2 = nn.Linear(hidden_size, hidden_size)
 
     def forward(self, x):
-        return self.linear2(F.leaky_relu(self.linear1(x)))
+        return self.linear2(F.relu(self.linear1(x)))
 
 
 class DepthWiseSeparableConv(nn.Module):
@@ -197,7 +197,7 @@ class DepthWiseSeparableConv(nn.Module):
         depth = self.depth_conv(x.transpose(1, 2))
         point = self.point_conv(depth).transpose(1, 2)
 
-        return F.leaky_relu(point)
+        return F.relu(point)
 
 
 class EncoderBlock(nn.Module):
