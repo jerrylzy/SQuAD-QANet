@@ -42,14 +42,19 @@ class FeedForward(nn.Module):
 
     def __init__(self, hidden_size, input_size = None, output_size = None):
         super().__init__()
-        # self.l1 = nn.Linear(input_size if input_size != None else hidden_size, hidden_size, device=device)
-        # self.l2 = nn.Linear(hidden_size, output_size if output_size != None else hidden_size, device=device)
-        self.l1 = Conv1dLinear(input_size if input_size != None else hidden_size, hidden_size, use_relu=True)
-        self.l2 = Conv1dLinear(hidden_size, output_size if output_size != None else hidden_size)
+        self.l1 = nn.Linear(input_size if input_size != None else hidden_size, hidden_size, device=device)
+        self.l2 = nn.Linear(hidden_size, output_size if output_size != None else hidden_size, device=device)
+        # self.l1 = Conv1dLinear(input_size if input_size != None else hidden_size, hidden_size, use_relu=True)
+        # self.l2 = Conv1dLinear(hidden_size, output_size if output_size != None else hidden_size)
+        nn.init.kaiming_normal_(self.l1.weight, nonlinearity='relu')
+        self.l1.bias.data.zero_()
+        nn.init.xavier_uniform_(self.l2.weight)
+        self.l2.bias.data.zero_()
+
 
     def forward(self, x):
-        return self.l2(self.l1(x))
-        # return self.l2(F.relu(self.l1(x)))
+        # return self.l2(self.l1(x))
+        return self.l2(F.relu(self.l1(x)))
 
 
 class CharCNN(nn.Module):
@@ -136,13 +141,13 @@ class Embedding(nn.Module):
 
         if self.char_conv == None:
             char_emb = char_emb.view((*char_emb.shape[:2], -1))
+            char_emb = F.dropout(char_emb, self.drop_prob * 0.5, self.training)
         else:
             # bs, sl, _, char_emb_dim = char_emb.shape
             char_emb = self.char_conv(char_emb.permute(0, 3, 1, 2)).permute(0, 2, 1) # (batch_size, seq_len, embed_size)
 
         emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
         # emb = F.dropout(emb, stochastic_depth_layer_dropout(self.drop_prob, 1, self.num_layers), self.training)
-        # emb = F.dropout(emb, self.drop_prob, self.training)
         emb = self.proj(emb)  # (batch_size, seq_len, embed_size)
         emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
         # emb = F.dropout(emb, self.drop_prob, self.training)
@@ -164,9 +169,9 @@ class HighwayEncoder(nn.Module):
     """
     def __init__(self, num_layers, hidden_size):
         super(HighwayEncoder, self).__init__()
-        self.transforms = nn.ModuleList([Conv1dLinear(hidden_size, hidden_size)
+        self.transforms = nn.ModuleList([nn.Linear(hidden_size, hidden_size, device=device)
                                          for _ in range(num_layers)])
-        self.gates = nn.ModuleList([Conv1dLinear(hidden_size, hidden_size)
+        self.gates = nn.ModuleList([nn.Linear(hidden_size, hidden_size, device=device)
                                     for _ in range(num_layers)])
 
     def forward(self, x):

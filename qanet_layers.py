@@ -120,10 +120,12 @@ class QANetOutput(nn.Module):
 
     def __init__(self, hidden_size, drop_prob):
         super().__init__()
-        self.att_linear_1 = Conv1dLinear(2 * hidden_size, 1, bias=False)
+        self.att_linear_1 = nn.Linear(2 * hidden_size, 1, bias=False)
         self.dropout_1 = nn.Dropout(drop_prob)
-        self.att_linear_2 = Conv1dLinear(2 * hidden_size, 1, bias=False)
+        self.att_linear_2 = nn.Linear(2 * hidden_size, 1, bias=False)
         self.dropout_2 = nn.Dropout(drop_prob)
+        nn.init.xavier_uniform_(self.att_linear_1.weight)
+        nn.init.xavier_uniform_(self.att_linear_2.weight)
 
     def forward(self, emb_1, emb_2, emb_3, mask):
         # Shapes: (batch_size, seq_len, 1)
