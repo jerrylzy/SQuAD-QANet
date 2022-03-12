@@ -46,10 +46,10 @@ class FeedForward(nn.Module):
         self.l2 = nn.Linear(hidden_size, output_size if output_size != None else hidden_size, device=device)
         # self.l1 = Conv1dLinear(input_size if input_size != None else hidden_size, hidden_size, use_relu=True)
         # self.l2 = Conv1dLinear(hidden_size, output_size if output_size != None else hidden_size)
-        nn.init.kaiming_normal_(self.l1.weight, nonlinearity='relu')
-        self.l1.bias.data.zero_()
-        nn.init.xavier_uniform_(self.l2.weight)
-        self.l2.bias.data.zero_()
+        # nn.init.kaiming_normal_(self.l1.weight, nonlinearity='relu')
+        # self.l1.bias.data.zero_()
+        # nn.init.xavier_uniform_(self.l2.weight)
+        # self.l2.bias.data.zero_()
 
 
     def forward(self, x):
@@ -128,29 +128,26 @@ class Embedding(nn.Module):
                                 char_limit=self.CHAR_LIMIT) if use_char_cnn else None
 
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
-        self.word_dropout = nn.Dropout(drop_prob)
         emb_dim = word_vectors.size(1) + (hidden_size if use_char_cnn else self.CHAR_LIMIT * char_emb_dim)
 
-        self.proj = Conv1dLinear(emb_dim, hidden_size, bias=False)
-        # self.proj = nn.Linear(emb_dim, hidden_size, bias=False)
+        # self.proj = Conv1dLinear(emb_dim, hidden_size, bias=False)
+        self.proj = nn.Linear(emb_dim, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, w_idx, c_idx):
-        word_emb = self.word_dropout(self.word_embed(w_idx))   # (batch_size, seq_len, word_embed_size)
+        word_emb = self.word_embed(w_idx)   # (batch_size, seq_len, word_embed_size)
         char_emb = self.char_embed(c_idx)   # (batch_size, seq_len, char_limit, char_embed_size)
 
         if self.char_conv == None:
             char_emb = char_emb.view((*char_emb.shape[:2], -1))
-            char_emb = F.dropout(char_emb, self.drop_prob * 0.5, self.training)
         else:
             # bs, sl, _, char_emb_dim = char_emb.shape
             char_emb = self.char_conv(char_emb.permute(0, 3, 1, 2)).permute(0, 2, 1) # (batch_size, seq_len, embed_size)
 
         emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
-        # emb = F.dropout(emb, stochastic_depth_layer_dropout(self.drop_prob, 1, self.num_layers), self.training)
+        emb = F.dropout(emb, self.drop_prob, self.training)
         emb = self.proj(emb)  # (batch_size, seq_len, embed_size)
         emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
-        # emb = F.dropout(emb, self.drop_prob, self.training)
 
         return emb
 
@@ -173,6 +170,14 @@ class HighwayEncoder(nn.Module):
                                          for _ in range(num_layers)])
         self.gates = nn.ModuleList([nn.Linear(hidden_size, hidden_size, device=device)
                                     for _ in range(num_layers)])
+
+        # for transform in self.transforms:
+        #     nn.init.kaiming_normal_(transform.weight, nonlinearity='relu')
+        #     transform.bias.data.zero_()
+
+        # for gate in self.gates:
+        #     nn.init.kaiming_normal_(gate.weight, nonlinearity='sigmoid')
+        #     gate.bias.data.zero_()
 
     def forward(self, x):
         for gate, transform in zip(self.gates, self.transforms):
@@ -232,7 +237,6 @@ class RNNEncoder(nn.Module):
         return x
 
 
-
 class PositionalEncoding(nn.Module):
     """
     Fixed positional encoding layer
@@ -282,7 +286,8 @@ class SelfAttention(nn.Module):
         super(SelfAttention, self).__init__()
 
         # Attention
-        self.pe = PositionalEncoding(hidden_size)
+        self.pe = PositionalEncoding(hidden_size, 0)
+        self.layer_norm_0 = nn.LayerNorm(hidden_size)
         self.multihead_att = MultiHeadAttention(hidden_size, num_heads, dropout)
         self.residual_dropout_1 = nn.Dropout(dropout)
         self.layer_norm_1 = nn.LayerNorm(hidden_size)
@@ -293,14 +298,21 @@ class SelfAttention(nn.Module):
         self.layer_norm_2 = nn.LayerNorm(hidden_size)
 
     def forward(self, x, mask=None):
+
+        x = self.layer_norm_0(x)
+
         # Add positional encoding
         x = self.pe(x)
+
         # MultiHeadAttention
-        att = self.residual_dropout_1(self.multihead_att(x, mask))
-        att = self.layer_norm_1(att + x)
+        attn = self.multihead_att(x, mask)
+        attn = self.residual_dropout_1(attn)
+        attn = self.layer_norm_1(attn + x)
+
         # FF
-        ff = self.residual_dropout_2(self.ff(att))
-        output = self.layer_norm_2(ff + att)
+        ff = self.ff(attn)
+        ff = self.residual_dropout_2(ff)
+        output = self.layer_norm_2(ff + attn)
         return output
 
 
