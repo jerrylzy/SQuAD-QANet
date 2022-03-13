@@ -34,7 +34,7 @@ class BiDAF(nn.Module):
         use_char_cnn (bool): Whether to use Char-CNN
     """
 
-    def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob=0., use_char_cnn=False):
+    def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob=0., use_char_cnn=False, num_heads=5):
         super(BiDAF, self).__init__()
         self.emb = layers.Embedding(char_vectors=char_vectors,
                                     word_vectors=word_vectors,
@@ -51,7 +51,7 @@ class BiDAF(nn.Module):
                                          drop_prob=drop_prob)
 
         self.self_att = layers.SelfAttention(hidden_size=2 * hidden_size,
-                                             num_heads=5,
+                                             num_heads=num_heads,
                                              dropout=drop_prob)
 
         self.mod = layers.RNNEncoder(input_size=10 * hidden_size,
