@@ -1,10 +1,52 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from layers import Conv1dLinear, FeedForward, ResidualBlock, PositionalEncoding, MultiHeadAttention, HighwayEncoder, CharCNN
+from layers import Conv1dLinear, FeedForward, ResidualBlock, HighwayEncoder, CharCNN
 from util import masked_softmax, stochastic_depth_layer_dropout, get_available_devices
 device, _ = get_available_devices()
+
+
+class PositionalEncoding(nn.Module):
+    """
+    Fixed positional encoding layer
+    """
+
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 1024):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, 1, d_model, device=device)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: Tensor, shape [seq_len, batch_size, embedding_dim]
+        """
+        x = x + self.pe[:x.size(0)]
+        return self.dropout(x)
+
+
+class MultiHeadAttention(nn.Module):
+    """
+    Transformer Multihead Self-Attention
+    """
+
+    def __init__(self, hidden_size, num_heads, dropout=0.1):
+        super(MultiHeadAttention, self).__init__()
+        assert hidden_size % num_heads == 0
+
+        self.ma = nn.MultiheadAttention(hidden_size, num_heads, dropout, batch_first=True, device=device)
+
+    def forward(self, x, attn_mask=None):
+        attn_output, _ = self.ma(x, x, x, key_padding_mask = attn_mask.int())
+        return attn_output
 
 
 class Embedding(nn.Module):
