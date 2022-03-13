@@ -72,8 +72,8 @@ class CharCNN(nn.Module):
 
     def forward(self, x):
         emb = self.conv(x)
-        emb = self.bm(emb)
         emb = F.relu(emb)
+        emb = self.bm(emb)
         emb = self.maxpool(emb)
         return self.dropout(emb).squeeze(3)
 
@@ -126,7 +126,7 @@ class Embedding(nn.Module):
         self.char_conv = CharCNN(char_emb_dim=char_emb_dim,
                                 hidden_size=hidden_size,
                                 kernel_width=5,
-                                drop_prob=drop_prob * 0.5,
+                                drop_prob=0,
                                 char_limit=self.CHAR_LIMIT) if use_char_cnn else None
 
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
