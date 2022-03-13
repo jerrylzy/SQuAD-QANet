@@ -153,10 +153,14 @@ class QANet(nn.Module):
         self.att = layers.BiDAFAttention(hidden_size=hidden_size,
                                          drop_prob=drop_prob)
 
-        self.mod_proj = layers.Conv1dLinear(4 * hidden_size, hidden_size, bias=False) if project else None
+        self.self_att = layers.SelfAttention(hidden_size=hidden_size,
+                                             num_heads=8,
+                                             dropout=drop_prob)
+
+        self.mod_proj = layers.Conv1dLinear(5 * hidden_size, hidden_size, bias=False) if project else None
 
         self.mod = qanet_layers.StackedEmbeddingEncoderBlock(
-            hidden_size=hidden_size if project else 4 * hidden_size,
+            hidden_size=hidden_size if project else 6 * hidden_size,
             num_blocks=7,
             num_heads=8,
             dropout=drop_prob,
@@ -196,8 +200,11 @@ class QANet(nn.Module):
         q_enc = self.enc(q_emb, q_mask)    # (batch_size, q_len, hidden_size)
 
         att = self.att(c_enc, q_enc, c_mask, q_mask)    # (batch_size, c_len, 4 * hidden_size)
+        self_att = self.self_att(c_enc, c_mask)    # (batch_size, c_len, 2 * hidden_size)
 
-        att = self.mod_proj(att) if self.mod_proj != None else att
+        concat_att = torch.cat((att, self_att), dim=2)
+
+        att = self.mod_proj(concat_att) if self.mod_proj != None else att
 
         # stackd encoder blocks share weights among its three repetitions
         att_emb_1 = F.dropout(self.mod(att, c_mask), self.drop_prob, self.training)
