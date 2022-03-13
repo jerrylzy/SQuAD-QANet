@@ -2,8 +2,9 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.ops as ops
 
-from layers import Conv1dLinear, FeedForward, ResidualBlock, HighwayEncoder, CharCNN
+from layers import Conv1dLinear, FeedForward, HighwayEncoder, CharCNN
 from util import masked_softmax, stochastic_depth_layer_dropout, get_available_devices
 device, _ = get_available_devices()
 
@@ -47,6 +48,27 @@ class MultiHeadAttention(nn.Module):
     def forward(self, x, attn_mask=None):
         attn_output, _ = self.ma(x, x, x, key_padding_mask = attn_mask.int())
         return attn_output
+
+
+class ResidualBlock(nn.Module):
+    """
+    Residual Block
+    """
+
+    def __init__(self, module, hidden_size, residual_dropout_p=0.1):
+        super().__init__()
+        self.module = module
+        self.layer_norm = nn.LayerNorm(hidden_size, device=device)
+        self.residual_dropout = ops.StochasticDepth(residual_dropout_p, mode='batch')
+
+    def forward(self, x, mask=None):
+        # Normalize
+        input = self.layer_norm(x)
+        # Apply module
+        output = self.residual_dropout(self.module(input, mask)) if mask != None else self.residual_dropout(self.module(input))
+        # Add residual connection
+        output = output + x
+        return output
 
 
 class Embedding(nn.Module):

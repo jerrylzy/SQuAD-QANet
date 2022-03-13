@@ -13,28 +13,6 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from util import masked_softmax, stochastic_depth_layer_dropout, get_available_devices
 device, _ = get_available_devices()
 
-
-class ResidualBlock(nn.Module):
-    """
-    Residual Block
-    """
-
-    def __init__(self, module, hidden_size, residual_dropout_p=0.1):
-        super().__init__()
-        self.module = module
-        self.layer_norm = nn.LayerNorm(hidden_size, device=device)
-        self.residual_dropout = nn.Dropout(residual_dropout_p)
-
-    def forward(self, x, mask=None):
-        # Normalize
-        input = self.layer_norm(x)
-        # Apply module
-        output = self.residual_dropout(self.module(input, mask)) if mask != None else self.residual_dropout(self.module(input))
-        # Add residual connection
-        output = output + x
-        return output
-
-
 class FeedForward(nn.Module):
     """
     Feed Forward Layer
