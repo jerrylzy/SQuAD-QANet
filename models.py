@@ -51,7 +51,7 @@ class BiDAF(nn.Module):
                                          drop_prob=drop_prob)
 
         self.self_att = layers.SelfAttention(hidden_size=2 * hidden_size,
-                                             num_heads=8,
+                                             num_heads=5,
                                              dropout=drop_prob)
 
         self.mod = layers.RNNEncoder(input_size=10 * hidden_size,
@@ -60,7 +60,7 @@ class BiDAF(nn.Module):
                                      drop_prob=drop_prob)
 
         self.out = layers.BiDAFOutput(hidden_size=hidden_size,
-                                      drop_prob=drop_prob * 0.5)
+                                      drop_prob=0)
         self.apply(self._init_weights)
 
 

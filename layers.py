@@ -117,8 +117,10 @@ class Embedding(nn.Module):
         self.drop_prob = drop_prob
         self.num_layers = 2
 
-        char_emb_dim = char_vectors.size(1)
-        self.char_embed = nn.Embedding.from_pretrained(char_vectors, freeze=False, padding_idx=0)
+        # char_emb_dim = char_vectors.size(1)
+        # self.char_embed = nn.Embedding.from_pretrained(char_vectors, freeze=False, padding_idx=0)
+        vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
+        self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
 
         # (batch_size, hidden_size, seq_len, char_limit)
         self.char_conv = CharCNN(char_emb_dim=char_emb_dim,
@@ -241,41 +243,62 @@ class PositionalEncoding(nn.Module):
     """
     Fixed positional encoding layer
     """
-
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 1024):
-        super().__init__()
+    def __init__(self, hidden_size, dropout=0.1, max_len=5000):
+        super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
+        assert hidden_size % 2 == 0
 
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-        pe = torch.zeros(max_len, 1, d_model, device=device)
-        pe[:, 0, 0::2] = torch.sin(position * div_term)
-        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        pe = torch.zeros(1, max_len, hidden_size)
+        i = torch.arange(0, max_len).repeat((hidden_size // 2, 1)).T
+        j = torch.arange(0, hidden_size, 2)
+        index = i * 10000 ** (-j / hidden_size)
+        pe[:, :, 0::2] = torch.sin(index)
+        pe[:, :, 1::2] = torch.cos(index)
         self.register_buffer('pe', pe)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x: Tensor, shape [seq_len, batch_size, embedding_dim]
-        """
-        x = x + self.pe[:x.size(0)]
-        return self.dropout(x)
+    def forward(self, x):
+        # x.shape = batch size, sequence size, embedding dimension
+        output = self.dropout(x + self.pe[:, :x.shape[1], :])
+        return output
 
 
 class MultiHeadAttention(nn.Module):
     """
     Transformer Multihead Self-Attention
     """
-
     def __init__(self, hidden_size, num_heads, dropout=0.1):
         super(MultiHeadAttention, self).__init__()
         assert hidden_size % num_heads == 0
 
-        self.ma = nn.MultiheadAttention(hidden_size, num_heads, dropout, batch_first=True, device=device)
+        self.key = nn.Linear(hidden_size, hidden_size)
+        self.query = nn.Linear(hidden_size, hidden_size)
+        self.value = nn.Linear(hidden_size, hidden_size)
+        self.proj = nn.Linear(hidden_size, hidden_size)
+        self.num_heads = num_heads
+        self.d_k = hidden_size // num_heads
+        self.scaled_dk = math.sqrt(self.d_k)
+        self.softmax = nn.Softmax(dim=-1)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, attn_mask=None):
-        attn_output, _ = self.ma(x, x, x, key_padding_mask = attn_mask.int())
-        return attn_output
+        # batch size, sequence size, embedding dimension
+        N, S, _ = x.shape
+        H = self.num_heads
+        q = self.query(x).view(N, S, H, self.d_k).transpose(1, 2) # (N, H, S, dk)
+        k = self.key(x).view(N, S, H, self.d_k).transpose(1, 2)     # (N, H, T, dk)
+        v = self.value(x).view(N, S, H, self.d_k).transpose(1, 2) # (N, H, T, dk)
+
+        attn = torch.matmul(q, k.transpose(2, 3)) / self.scaled_dk # Scaled Dot Product Attention
+
+        if attn_mask != None:
+            attn_mask = attn_mask.view(N, 1, 1, S)
+            attn = attn.masked_fill(attn_mask == 0, -math.inf)
+
+        attn = self.dropout(self.softmax(attn)) # (N, H, S, T)
+
+        y = torch.matmul(attn, v).transpose(1, 2).contiguous().view(N, S, -1)
+        output = self.proj(y)
+        return output
 
 
 class SelfAttention(nn.Module):
@@ -287,7 +310,7 @@ class SelfAttention(nn.Module):
 
         # Attention
         self.pe = PositionalEncoding(hidden_size, 0)
-        self.layer_norm_0 = nn.LayerNorm(hidden_size)
+        # self.layer_norm_0 = nn.LayerNorm(hidden_size)
         self.multihead_att = MultiHeadAttention(hidden_size, num_heads, dropout)
         self.residual_dropout_1 = nn.Dropout(dropout)
         self.layer_norm_1 = nn.LayerNorm(hidden_size)
@@ -299,7 +322,7 @@ class SelfAttention(nn.Module):
 
     def forward(self, x, mask=None):
 
-        x = self.layer_norm_0(x)
+        # x = self.layer_norm_0(x)
 
         # Add positional encoding
         x = self.pe(x)

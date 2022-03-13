@@ -27,8 +27,10 @@ class Embedding(nn.Module):
         self.drop_prob = drop_prob
         self.num_layers = 2
 
-        char_emb_dim = char_vectors.size(1)
-        self.char_embed = nn.Embedding.from_pretrained(char_vectors, freeze=False, padding_idx=0)
+        # char_emb_dim = char_vectors.size(1)
+        # self.char_embed = nn.Embedding.from_pretrained(char_vectors, freeze=False, padding_idx=0)
+        vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
+        self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
 
         # (batch_size, hidden_size, seq_len, char_limit)
         self.char_conv = CharCNN(char_emb_dim=char_emb_dim,
