@@ -192,8 +192,8 @@ class QANet(nn.Module):
         # (batch_size, q_len, emb_size)
         q_emb = self.emb(qw_idxs, qc_idxs)
 
-        c_enc = self.enc(c_emb, c_mask)    # (batch_size, c_len, hidden_size)
-        q_enc = self.enc(q_emb, q_mask)    # (batch_size, q_len, hidden_size)
+        c_enc = F.dropout(self.enc(c_emb, c_mask), self.drop_prob, self.training)    # (batch_size, c_len, hidden_size)
+        q_enc = F.dropout(self.enc(q_emb, q_mask), self.drop_prob, self.training)    # (batch_size, q_len, hidden_size)
 
         att = self.att(c_enc, q_enc, c_mask, q_mask)    # (batch_size, c_len, 4 * hidden_size)
 
@@ -202,7 +202,7 @@ class QANet(nn.Module):
         # stackd encoder blocks share weights among its three repetitions
         att_emb_1 = F.dropout(self.mod(att, c_mask), self.drop_prob, self.training)
         att_emb_2 = F.dropout(self.mod(att_emb_1, c_mask), self.drop_prob, self.training)
-        att_emb_3 = self.mod(att_emb_2, c_mask)
+        att_emb_3 = F.dropout(self.mod(att_emb_2, c_mask), self.drop_prob, self.training)
 
         # 2 tensors, each (batch_size, c_len)
         out = self.out(att_emb_1, att_emb_2, att_emb_3, c_mask)
