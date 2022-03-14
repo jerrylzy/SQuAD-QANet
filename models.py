@@ -130,7 +130,7 @@ class QANet(nn.Module):
         use_char_cnn (bool): Whether to use Char-CNN
     """
 
-    def __init__(self, char_vectors, word_vectors, hidden_size=128, drop_prob=0., project=False, use_char_cnn=True):
+    def __init__(self, char_vectors, word_vectors, hidden_size=128, drop_prob=0., project=False, use_char_cnn=True, use_seq=True):
         super().__init__()
         self.drop_prob = drop_prob
 
@@ -139,7 +139,8 @@ class QANet(nn.Module):
                                     word_vectors=word_vectors,
                                     hidden_size=hidden_size,
                                     drop_prob=drop_prob,
-                                    use_char_cnn=use_char_cnn)
+                                    use_char_cnn=use_char_cnn,
+                                    use_seq=use_seq)
         num_conv_layers = 4
         self.enc = qanet_layers.EncoderBlock(
             hidden_size=hidden_size,

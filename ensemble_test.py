@@ -56,7 +56,8 @@ def main(args):
               word_vectors=word_vectors,
               hidden_size=128,
               project=True,
-              use_char_cnn=False),
+              use_char_cnn=False,
+              use_seq=False),
         CNNQANet0309(char_vectors=char_vectors,
                      word_vectors=word_vectors,
                      hidden_size=128,
@@ -70,7 +71,17 @@ def main(args):
                      word_vectors=word_vectors,
                      hidden_size=128,
                      use_char_cnn=False,
-                     num_heads=8)
+                     num_heads=8),
+        BiDAF(char_vectors=char_vectors,
+              word_vectors=word_vectors,
+              hidden_size=args.hidden_size,
+              use_char_cnn=False),
+        QANet(char_vectors=char_vectors,
+              word_vectors=word_vectors,
+              hidden_size=128,
+              project=True,
+              use_char_cnn=False,
+              use_seq=True),
     ]
 
     model_load_paths = [
@@ -78,7 +89,9 @@ def main(args):
         'save/train/qanet-cnn0311202210/qanet-base-06/best.pth.tar',
         'save/train/qanet-cnn-0310202209/cnn/qanet-base-01/best.pth.tar',
         'save/train/qanet-cnn0311202210/bidaf/nocnn/no-kaiming-init/hs100-02/best.pth.tar',
-        'save/train/qanet-cnn0311202210/bidaf/nocnn/kaiming-init-02/best.pth.tar'
+        'save/train/qanet-cnn0311202210/bidaf/nocnn/kaiming-init-02/best.pth.tar',
+        'save/train/ensemble/bidaf/nocnn/hs100-01/best.pth.tar',
+        'save/train/ensemble/nocnn/qanet-base-stochastic-depth-03/best.pth.tar',
     ]
 
     for model, model_load_path in zip(models, model_load_paths):
@@ -147,7 +160,7 @@ def main(args):
 
     # Log results (except for test set, since it does not come with labels)
     if args.split != 'test':
-        results = util.eval_dicts(gold_dict, pred_dict, args.use_squad_v2)
+        results = util.eval_dicts(gold_dict, pred_dict, args.use_squad_v2, args.save_dir)
         results_list = [('NLL', nll_meter.avg),
                         ('F1', results['F1']),
                         ('EM', results['EM'])]

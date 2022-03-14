@@ -49,7 +49,8 @@ def main(args):
                       word_vectors=word_vectors,
                       hidden_size=args.hidden_size,
                       project=args.project,
-                      use_char_cnn=args.use_char_cnn)
+                      use_char_cnn=args.use_char_cnn,
+                      use_seq=False)
     else:
         model = BiDAF(char_vectors=char_vectors,
                       word_vectors=word_vectors,
@@ -115,7 +116,7 @@ def main(args):
 
     # Log results (except for test set, since it does not come with labels)
     if args.split != 'test':
-        results = util.eval_dicts(gold_dict, pred_dict, args.use_squad_v2)
+        results = util.eval_dicts(gold_dict, pred_dict, args.use_squad_v2, args.save_dir)
         results_list = [('NLL', nll_meter.avg),
                         ('F1', results['F1']),
                         ('EM', results['EM'])]

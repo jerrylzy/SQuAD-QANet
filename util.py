@@ -3,6 +3,7 @@
 Author:
     Chris Chute (chute@stanford.edu)
 """
+import csv
 import logging
 import os
 import queue
@@ -719,16 +720,60 @@ def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
     return max(scores_for_ground_truths)
 
 
-def eval_dicts(gold_dict, pred_dict, no_answer):
+def eval_dicts(gold_dict, pred_dict, no_answer, save_dir=None):
     avna = f1 = em = total = 0
+    q_types = ['how', 'what', 'why', 'which', 'who', 'where', 'when', 'other']
+    totals = dict()
+    ems = dict()
+    f1s = dict()
+    avnas = dict()
+    for q_type in q_types:
+        totals[q_type] = 0
+        ems[q_type] = 0.
+        f1s[q_type] = 0.
+        avnas[q_type] = 0.
+
     for key, value in pred_dict.items():
         total += 1
         ground_truths = gold_dict[key]['answers']
         prediction = value
-        em += metric_max_over_ground_truths(compute_em, prediction, ground_truths)
-        f1 += metric_max_over_ground_truths(compute_f1, prediction, ground_truths)
+        cur_em = metric_max_over_ground_truths(compute_em, prediction, ground_truths)
+        cur_f1 = metric_max_over_ground_truths(compute_f1, prediction, ground_truths)
+        em += cur_em
+        f1 += cur_f1
         if no_answer:
-            avna += compute_avna(prediction, ground_truths)
+            cur_avna = compute_avna(prediction, ground_truths)
+            avna += cur_avna
+
+        if save_dir != None:
+            for q_type in q_types:
+                if q_type in gold_dict[key]['question'] or q_type == 'other':
+                    totals[q_type] += 1
+                    ems[q_type] += cur_em
+                    f1s[q_type] += cur_f1
+
+                    if no_answer:
+                        avnas[q_type] += cur_avna
+                    break
+
+    if save_dir != None:
+        for q_type in q_types:
+            ems[q_type] = 100. * ems[q_type] / totals[q_type] if totals[q_type] != 0 else 0
+            f1s[q_type] = 100. * f1s[q_type] / totals[q_type] if totals[q_type] != 0 else 0
+            if no_answer:
+                avnas[q_type] = 100. * avnas[q_type] / totals[q_type] if totals[q_type] != 0 else 0
+
+        def write_to_csv(filepath, dict_data):
+            with open(filepath, 'w') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=dict_data.keys())
+                writer.writeheader()
+                writer.writerow(dict_data)
+
+        write_to_csv(f'{save_dir}/dev_ems.csv', ems)
+        write_to_csv(f'{save_dir}/dev_f1s.csv', f1s)
+
+        if no_answer:
+            write_to_csv(f'{save_dir}/dev_avnas.csv', avnas)
 
     eval_dict = {'EM': 100. * em / total,
                  'F1': 100. * f1 / total}

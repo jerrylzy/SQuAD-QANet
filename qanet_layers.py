@@ -86,7 +86,7 @@ class Embedding(nn.Module):
         hidden_size (int): Size of hidden activations.
         drop_prob (float): Probability of zero-ing out activations
     """
-    def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob, use_char_cnn=False):
+    def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob, use_char_cnn=False, use_seq=True):
         super(Embedding, self).__init__()
         self.drop_prob = drop_prob
         self.num_layers = 2
@@ -102,11 +102,13 @@ class Embedding(nn.Module):
                                 kernel_width=5,
                                 drop_prob=drop_prob * 0.5,
                                 char_limit=self.CHAR_LIMIT) if use_char_cnn else None
-
-        self.word_embed = nn.Sequential(
-            nn.Embedding.from_pretrained(word_vectors),
-            nn.Dropout(drop_prob)
-        )
+        if use_seq:
+            self.word_embed = nn.Sequential(
+                nn.Embedding.from_pretrained(word_vectors),
+                nn.Dropout(drop_prob)
+            )
+        else:
+            self.word_embed = nn.Embedding.from_pretrained(word_vectors)
         emb_dim = word_vectors.size(1) + (hidden_size if use_char_cnn else self.CHAR_LIMIT * char_emb_dim)
 
         self.proj = Conv1dLinear(emb_dim, hidden_size, bias=False)
