@@ -130,17 +130,21 @@ def get_train_args():
                         type=float,
                         default=5.0,
                         help='Maximum gradient norm for gradient clipping.')
+    parser.add_argument('--eval_after_epoch',
+                        type=bool,
+                        default=False,
+                        help='Whether to evaluate after each epoch.')
     parser.add_argument('--seed',
                         type=int,
                         default=224,
-                        help='Random seed for reproducibility.')
+                        help='Random seed for reproducibility. 0 means not using a fixed seed.')
     parser.add_argument('--ema_decay',
                         type=float,
                         default=0.999,
                         help='Decay rate for exponential moving average of parameters.')
     parser.add_argument('--amp',
                         type=bool,
-                        default=True,
+                        default=False,
                         help='Whether to use Automatic Mixed Precision.')
     parser.add_argument('--optim_set_to_none',
                         type=bool,
@@ -254,16 +258,22 @@ def add_train_test_args(parser):
                         type=str,
                         default=None,
                         help='Path to load as a model checkpoint.')
+    # TODO: Change to use parser action
+    # https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
     parser.add_argument('--qanet',
                         type=bool,
                         default=False,
                         help='Whether to use QANet.')
-    # parser.add_argument('--emb_size',
-    #                     type=int,
-    #                     default=364,
-    #                     help='Size of the embedding layer of QANet')
+    parser.add_argument('--use_char_cnn',
+                        type=bool,
+                        default=False,
+                        help='Whether to use character-level CNN in the embedding layer.')
     parser.add_argument('--project',
                         type=bool,
-                        default=True,
+                        default=False,
                         help='Whether to project the BiDAF attention layer to a smaller dimension.')
+    parser.add_argument('--use_seq',
+                        type=bool,
+                        default=False,
+                        help='Whether to use sequential emb->dropout in the input embedding layer.')
 

@@ -10,69 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from util import masked_softmax, stochastic_depth_layer_dropout, get_available_devices
-device, _ = get_available_devices()
-
-class FeedForward(nn.Module):
-    """
-    Feed Forward Layer
-    """
-
-    def __init__(self, hidden_size, input_size = None, output_size = None):
-        super().__init__()
-        self.l1 = nn.Linear(input_size if input_size != None else hidden_size, hidden_size, device=device)
-        self.l2 = nn.Linear(hidden_size, output_size if output_size != None else hidden_size, device=device)
-        # self.l1 = Conv1dLinear(input_size if input_size != None else hidden_size, hidden_size, use_relu=True)
-        # self.l2 = Conv1dLinear(hidden_size, output_size if output_size != None else hidden_size)
-        # nn.init.kaiming_normal_(self.l1.weight, nonlinearity='relu')
-        # self.l1.bias.data.zero_()
-        # nn.init.xavier_uniform_(self.l2.weight)
-        # self.l2.bias.data.zero_()
-
-
-    def forward(self, x):
-        # return self.l2(self.l1(x))
-        return self.l2(F.relu(self.l1(x)))
-
-
-class CharCNN(nn.Module):
-    """
-    Character CNN
-    """
-
-    def __init__(self, char_emb_dim, hidden_size, kernel_width=5, drop_prob=0.05, char_limit=16):
-        super().__init__()
-        self.conv = nn.Conv2d(char_emb_dim, hidden_size, (1, kernel_width), padding=(0, kernel_width // 2), device=device) # Based on BiDAF's paper
-        nn.init.kaiming_normal_(self.conv.weight, nonlinearity='relu')
-        self.bm = nn.BatchNorm2d(hidden_size)
-        self.maxpool = nn.MaxPool2d((1, char_limit))
-        self.dropout = nn.Dropout(drop_prob)
-
-    def forward(self, x):
-        emb = self.conv(x)
-        emb = F.relu(emb)
-        emb = self.bm(emb)
-        emb = self.maxpool(emb)
-        return self.dropout(emb).squeeze(3)
-
-
-class Conv1dLinear(nn.Module):
-    """
-    Linear layer by Conv1d
-    """
-    def __init__(self, input_size, output_size, use_relu=False, bias=True):
-        super().__init__()
-        self.conv = nn.Conv1d(input_size, output_size, 1, bias=bias, device=device)
-        self.use_relu = use_relu
-
-        if use_relu:
-            nn.init.kaiming_normal_(self.conv.weight, nonlinearity='relu')
-        else:
-            nn.init.xavier_uniform_(self.conv.weight)
-
-    def forward(self, x):
-        y = self.conv(x.transpose(1, 2)).transpose(1, 2)
-        return F.relu(y) if self.use_relu else y
+from util import masked_softmax
 
 
 class Embedding(nn.Module):
@@ -90,43 +28,22 @@ class Embedding(nn.Module):
         hidden_size (int): Size of hidden activations.
         drop_prob (float): Probability of zero-ing out activations
     """
-    def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob, use_char_cnn=False):
+    def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob):
         super(Embedding, self).__init__()
         self.drop_prob = drop_prob
-        self.num_layers = 2
 
-        # char_emb_dim = char_vectors.size(1)
-        # self.char_embed = nn.Embedding.from_pretrained(char_vectors, freeze=False, padding_idx=0)
         vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
         self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
-
-        # (batch_size, hidden_size, seq_len, char_limit)
-        self.char_conv = CharCNN(char_emb_dim=char_emb_dim,
-                                hidden_size=hidden_size,
-                                kernel_width=5,
-                                drop_prob=0,
-                                char_limit=self.CHAR_LIMIT) if use_char_cnn else None
-
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
-        emb_dim = word_vectors.size(1) + (hidden_size if use_char_cnn else self.CHAR_LIMIT * char_emb_dim)
-
-        # self.proj = Conv1dLinear(emb_dim, hidden_size, bias=False)
-        self.proj = nn.Linear(emb_dim, hidden_size, bias=False)
+        self.proj = nn.Linear(word_vectors.size(1) + char_vectors.size(1) * self.CHAR_LIMIT, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, w_idx, c_idx):
         word_emb = self.word_embed(w_idx)   # (batch_size, seq_len, word_embed_size)
         char_emb = self.char_embed(c_idx)   # (batch_size, seq_len, char_limit, char_embed_size)
-
-        if self.char_conv == None:
-            char_emb = char_emb.view((*char_emb.shape[:2], -1))
-        else:
-            # bs, sl, _, char_emb_dim = char_emb.shape
-            char_emb = self.char_conv(char_emb.permute(0, 3, 1, 2)).permute(0, 2, 1) # (batch_size, seq_len, embed_size)
-
-        emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
+        emb = torch.cat((word_emb, char_emb.view(*char_emb.shape[:2], -1)), dim=2)   # (batch_size, seq_len, embed_size)
         emb = F.dropout(emb, self.drop_prob, self.training)
-        emb = self.proj(emb)  # (batch_size, seq_len, embed_size)
+        emb = self.proj(emb)  # (batch_size, seq_len, hidden_size)
         emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
 
         return emb
@@ -146,18 +63,10 @@ class HighwayEncoder(nn.Module):
     """
     def __init__(self, num_layers, hidden_size):
         super(HighwayEncoder, self).__init__()
-        self.transforms = nn.ModuleList([nn.Linear(hidden_size, hidden_size, device=device)
+        self.transforms = nn.ModuleList([nn.Linear(hidden_size, hidden_size)
                                          for _ in range(num_layers)])
-        self.gates = nn.ModuleList([nn.Linear(hidden_size, hidden_size, device=device)
+        self.gates = nn.ModuleList([nn.Linear(hidden_size, hidden_size)
                                     for _ in range(num_layers)])
-
-        # for transform in self.transforms:
-        #     nn.init.kaiming_normal_(transform.weight, nonlinearity='relu')
-        #     transform.bias.data.zero_()
-
-        # for gate in self.gates:
-        #     nn.init.kaiming_normal_(gate.weight, nonlinearity='sigmoid')
-        #     gate.bias.data.zero_()
 
     def forward(self, x):
         for gate, transform in zip(self.gates, self.transforms):
@@ -224,7 +133,7 @@ class PositionalEncoding(nn.Module):
     def __init__(self, hidden_size, dropout=0.1, max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
-        assert hidden_size % 2 == 0
+        # assert hidden_size % 2 == 0
 
         pe = torch.zeros(1, max_len, hidden_size)
         i = torch.arange(0, max_len).repeat((hidden_size // 2, 1)).T
@@ -246,8 +155,7 @@ class MultiHeadAttention(nn.Module):
     """
     def __init__(self, hidden_size, num_heads, dropout=0.1):
         super(MultiHeadAttention, self).__init__()
-        assert hidden_size % num_heads == 0
-
+        # assert hidden_size % num_heads == 0
         self.key = nn.Linear(hidden_size, hidden_size)
         self.query = nn.Linear(hidden_size, hidden_size)
         self.value = nn.Linear(hidden_size, hidden_size)
@@ -258,13 +166,14 @@ class MultiHeadAttention(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x, attn_mask=None):
+    def forward(self, query, key, value, attn_mask=None):
         # batch size, sequence size, embedding dimension
-        N, S, _ = x.shape
+        N, S, _ = query.shape
+        N, T, _ = value.shape
         H = self.num_heads
-        q = self.query(x).view(N, S, H, self.d_k).transpose(1, 2) # (N, H, S, dk)
-        k = self.key(x).view(N, S, H, self.d_k).transpose(1, 2)     # (N, H, T, dk)
-        v = self.value(x).view(N, S, H, self.d_k).transpose(1, 2) # (N, H, T, dk)
+        q = self.query(query).view(N, S, H, self.d_k).transpose(1, 2) # (N, H, S, dk)
+        k = self.key(key).view(N, T, H, self.d_k).transpose(1, 2)     # (N, H, T, dk)
+        v = self.value(value).view(N, T, H, self.d_k).transpose(1, 2) # (N, H, T, dk)
 
         attn = torch.matmul(q, k.transpose(2, 3)) / self.scaled_dk # Scaled Dot Product Attention
 
@@ -285,35 +194,31 @@ class SelfAttention(nn.Module):
     """
     def __init__(self, hidden_size, num_heads, dropout=0.1):
         super(SelfAttention, self).__init__()
+        assert hidden_size % num_heads == 0
 
         # Attention
-        self.pe = PositionalEncoding(hidden_size, 0)
-        # self.layer_norm_0 = nn.LayerNorm(hidden_size)
+        self.pe = PositionalEncoding(hidden_size, dropout)
         self.multihead_att = MultiHeadAttention(hidden_size, num_heads, dropout)
         self.residual_dropout_1 = nn.Dropout(dropout)
         self.layer_norm_1 = nn.LayerNorm(hidden_size)
 
         # Feed Forward
-        self.ff = FeedForward(hidden_size)
+        self.linear_1 = nn.Linear(hidden_size, hidden_size)
+        self.linear_2 = nn.Linear(hidden_size, hidden_size)
         self.residual_dropout_2 = nn.Dropout(dropout)
         self.layer_norm_2 = nn.LayerNorm(hidden_size)
 
-    def forward(self, x, mask=None):
-
-        # x = self.layer_norm_0(x)
-
+    def forward(self, x, mask):
         # Add positional encoding
         x = self.pe(x)
-
         # MultiHeadAttention
-        attn = self.multihead_att(x, mask)
-        attn = self.residual_dropout_1(attn)
-        attn = self.layer_norm_1(attn + x)
-
+        att = self.residual_dropout_1(self.multihead_att(x, x, x, mask))
+        att = self.layer_norm_1(att + x)
         # FF
-        ff = self.ff(attn)
+        ff = F.relu(self.linear_1(att))
+        ff = self.linear_2(ff)
         ff = self.residual_dropout_2(ff)
-        output = self.layer_norm_2(ff + attn)
+        output = self.layer_norm_2(ff + att)
         return output
 
 
@@ -335,12 +240,12 @@ class BiDAFAttention(nn.Module):
     def __init__(self, hidden_size, drop_prob=0.1):
         super(BiDAFAttention, self).__init__()
         self.drop_prob = drop_prob
-        self.c_weight = nn.Parameter(torch.zeros(hidden_size, 1, device=device))
-        self.q_weight = nn.Parameter(torch.zeros(hidden_size, 1, device=device))
-        self.cq_weight = nn.Parameter(torch.zeros(1, 1, hidden_size, device=device))
+        self.c_weight = nn.Parameter(torch.zeros(hidden_size, 1))
+        self.q_weight = nn.Parameter(torch.zeros(hidden_size, 1))
+        self.cq_weight = nn.Parameter(torch.zeros(1, 1, hidden_size))
         for weight in (self.c_weight, self.q_weight, self.cq_weight):
             nn.init.xavier_uniform_(weight)
-        self.bias = nn.Parameter(torch.zeros(1, device=device))
+        self.bias = nn.Parameter(torch.zeros(1))
 
     def forward(self, c, q, c_mask, q_mask):
         batch_size, c_len, _ = c.size()
@@ -402,7 +307,6 @@ class BiDAFOutput(nn.Module):
         super(BiDAFOutput, self).__init__()
         self.att_linear_1 = nn.Linear(10 * hidden_size, 1)
         self.mod_linear_1 = nn.Linear(4 * hidden_size, 1)
-        self.dropout_1 = nn.Dropout(drop_prob)
 
         self.rnn = RNNEncoder(input_size=4 * hidden_size,
                               hidden_size=2 * hidden_size,
@@ -411,16 +315,93 @@ class BiDAFOutput(nn.Module):
 
         self.att_linear_2 = nn.Linear(10 * hidden_size, 1)
         self.mod_linear_2 = nn.Linear(4 * hidden_size, 1)
-        self.dropout_2 = nn.Dropout(drop_prob)
 
     def forward(self, att, mod, mask):
         # Shapes: (batch_size, seq_len, 1)
-        logits_1 = self.dropout_1(self.att_linear_1(att) + self.mod_linear_1(mod))
+        logits_1 = self.att_linear_1(att) + self.mod_linear_1(mod)
         mod_2 = self.rnn(mod, mask.sum(-1))
-        logits_2 = self.dropout_2(self.att_linear_2(att) + self.mod_linear_2(mod_2))
+        logits_2 = self.att_linear_2(att) + self.mod_linear_2(mod_2)
 
         # Shapes: (batch_size, seq_len)
         log_p1 = masked_softmax(logits_1.squeeze(), mask, log_softmax=True)
         log_p2 = masked_softmax(logits_2.squeeze(), mask, log_softmax=True)
 
         return log_p1, log_p2
+
+
+class MilestoneBiDAF(nn.Module):
+    """Baseline BiDAF model for SQuAD.
+    Based on the paper:
+    "Bidirectional Attention Flow for Machine Comprehension"
+    by Minjoon Seo, Aniruddha Kembhavi, Ali Farhadi, Hannaneh Hajishirzi
+    (https://arxiv.org/abs/1611.01603).
+    Follows a high-level structure commonly found in SQuAD models:
+        - Embedding layer: Embed char/word indices to get char/word vectors.
+        - Encoder layer: Encode the embedded sequence.
+        - Attention layer: Apply an attention mechanism to the encoded sequence.
+        - Model encoder layer: Encode the sequence again.
+        - Output layer: Simple layer (e.g., fc + softmax) to get final outputs.
+    Args:
+        char_vectors (torch.Tensor): Pre-trained char vectors.
+        word_vectors (torch.Tensor): Pre-trained word vectors.
+        hidden_size (int): Number of features in the hidden state at each layer.
+        drop_prob (float): Dropout probability.
+    """
+
+    def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob=0.):
+        super(MilestoneBiDAF, self).__init__()
+        self.emb = Embedding(char_vectors=char_vectors,
+                                    word_vectors=word_vectors,
+                                    hidden_size=hidden_size,
+                                    drop_prob=drop_prob)
+
+        self.enc = RNNEncoder(input_size=hidden_size,
+                                     hidden_size=hidden_size,
+                                     num_layers=1,
+                                     drop_prob=drop_prob)
+
+        self.att = BiDAFAttention(hidden_size=2 * hidden_size,
+                                         drop_prob=drop_prob)
+
+        self.self_att = SelfAttention(hidden_size=2 * hidden_size,
+                                             num_heads=5,
+                                             dropout=drop_prob)
+
+        self.mod = RNNEncoder(input_size=10 * hidden_size,
+                                     hidden_size=2 * hidden_size,
+                                     num_layers=2,
+                                     drop_prob=drop_prob)
+
+        self.out = BiDAFOutput(hidden_size=hidden_size,
+                                      drop_prob=drop_prob)
+
+    def forward(self, cw_idxs, cc_idxs, qw_idxs, qc_idxs):
+        c_mask = torch.zeros_like(cw_idxs) != cw_idxs
+        q_mask = torch.zeros_like(qw_idxs) != qw_idxs
+        c_len, q_len = c_mask.sum(-1), q_mask.sum(-1)
+
+        # (batch_size, c_len, hidden_size)
+        c_emb = self.emb(cw_idxs, cc_idxs)
+        # (batch_size, q_len, hidden_size)
+        q_emb = self.emb(qw_idxs, qc_idxs)
+
+        # (batch_size, c_len, 2 * hidden_size)
+        c_enc = self.enc(c_emb, c_len)
+        # (batch_size, q_len, 2 * hidden_size)
+        q_enc = self.enc(q_emb, q_len)
+
+        att = self.att(c_enc, q_enc,
+                       c_mask, q_mask)    # (batch_size, c_len, 8 * hidden_size)
+
+        # (batch_size, c_len, 2 * hidden_size)
+        self_att = self.self_att(c_enc, c_mask)
+
+        concat_att = torch.cat((att, self_att), dim=2)
+
+        # (batch_size, c_len, 2 * hidden_size)
+        mod = self.mod(concat_att, c_len)
+
+        # 2 tensors, each (batch_size, c_len)
+        out = self.out(concat_att, mod, c_mask)
+
+        return out

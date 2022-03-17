@@ -22,6 +22,9 @@ from args import get_test_args
 from collections import OrderedDict
 from json import dumps
 from models import BiDAF, QANet
+from milestone_bidaf import MilestoneBiDAF
+from torch_attn_bidaf import KaimingBiDAF
+from cnn_0309_qanet import CNNQANet0309
 from os.path import join
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
@@ -44,23 +47,58 @@ def main(args):
 
     # Get model
     log.info('Building model...')
-    if args.qanet:
-        model = QANet(char_vectors=char_vectors,
-                      word_vectors=word_vectors,
-                      hidden_size=args.hidden_size,
-                      project=args.project,
-                      use_char_cnn=args.use_char_cnn,
-                      use_seq=args.use_seq)
-    else:
-        model = BiDAF(char_vectors=char_vectors,
-                      word_vectors=word_vectors,
-                      hidden_size=args.hidden_size,
-                      use_char_cnn=args.use_char_cnn)
-    model = nn.DataParallel(model, gpu_ids)
-    log.info(f'Loading checkpoint from {args.load_path}...')
-    model = util.load_model(model, args.load_path, gpu_ids, return_step=False)
-    model = model.to(device)
-    model.eval()
+
+    models = [
+        MilestoneBiDAF(char_vectors=char_vectors,
+                       word_vectors=word_vectors,
+                       hidden_size=args.hidden_size),
+        QANet(char_vectors=char_vectors,
+              word_vectors=word_vectors,
+              hidden_size=128,
+              project=True,
+              use_char_cnn=False,
+              use_seq=False),
+        CNNQANet0309(char_vectors=char_vectors,
+                     word_vectors=word_vectors,
+                     hidden_size=128,
+                     project=True,
+                     use_char_cnn=True),
+        BiDAF(char_vectors=char_vectors,
+              word_vectors=word_vectors,
+              hidden_size=args.hidden_size,
+              use_char_cnn=False),
+        KaimingBiDAF(char_vectors=char_vectors,
+                     word_vectors=word_vectors,
+                     hidden_size=128,
+                     use_char_cnn=False,
+                     num_heads=8),
+        BiDAF(char_vectors=char_vectors,
+              word_vectors=word_vectors,
+              hidden_size=args.hidden_size,
+              use_char_cnn=False),
+        QANet(char_vectors=char_vectors,
+              word_vectors=word_vectors,
+              hidden_size=128,
+              project=True,
+              use_char_cnn=False,
+              use_seq=True),
+    ]
+
+    model_load_paths = [
+        'save/train/bidaf-char-emb-200-proj-01/best.pth.tar',
+        'save/train/qanet-cnn0311202210/qanet-base-06/best.pth.tar',
+        'save/train/qanet-cnn-0310202209/cnn/qanet-base-01/best.pth.tar',
+        'save/train/qanet-cnn0311202210/bidaf/nocnn/no-kaiming-init/hs100-02/best.pth.tar',
+        'save/train/qanet-cnn0311202210/bidaf/nocnn/kaiming-init-02/best.pth.tar',
+        'save/train/ensemble/bidaf/nocnn/hs100-01/best.pth.tar',
+        'save/train/ensemble/nocnn/qanet-base-stochastic-depth-03/best.pth.tar',
+    ]
+
+    for model, model_load_path in zip(models, model_load_paths):
+        model = nn.DataParallel(model, gpu_ids)
+        model = util.load_model(model, model_load_path, gpu_ids, return_step=False)
+        model = model.to(device)
+        model.eval()
 
     # Get data loader
     log.info('Building dataset...')
@@ -91,14 +129,20 @@ def main(args):
             batch_size = cw_idxs.size(0)
 
             # Forward
-            log_p1, log_p2 = model(cw_idxs, cc_idxs, qw_idxs, qc_idxs)
-            y1, y2 = y1.to(device), y2.to(device)
-            loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
-            nll_meter.update(loss.item(), batch_size)
+            p1s, p2s = [], []
 
-            # Get F1 and EM scores
-            p1, p2 = log_p1.exp(), log_p2.exp()
-            starts, ends = util.discretize(p1, p2, args.max_ans_len, args.use_squad_v2)
+            for model in models:
+                log_p1, log_p2 = model(cw_idxs, cc_idxs, qw_idxs, qc_idxs)
+                y1, y2 = y1.to(device), y2.to(device)
+                loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
+                nll_meter.update(loss.item(), batch_size)
+
+                # Get F1 and EM scores
+                p1, p2 = log_p1.exp(), log_p2.exp()
+                p1s.append(p1)
+                p2s.append(p2)
+
+            starts, ends = util.discretize_ensemble(p1s, p2s, args.max_ans_len, args.use_squad_v2)
 
             # Log info
             progress_bar.update(batch_size)
