@@ -47,12 +47,13 @@ class InputEmbedding(nn.Module):
         emb_size (int): Size of embedding.
         drop_prob (float): Probability of zero-ing out activations
     """
-
-    def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob):
-        super(InputEmbedding, self).__init__()
+    def __init__(self, char_vectors, word_vectors, pos_vectors, hidden_size, drop_prob, use_char_cnn=False):
+        super(Embedding, self).__init__()
         self.drop_prob = drop_prob
 
-        vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
+        # char_emb_dim = char_vectors.size(1)
+        # self.char_embed = nn.Embedding.from_pretrained(char_vectors, freeze=False, padding_idx=0)
+        vocab_size, char_emb_dim, pos_emb_dim = char_vectors.size(0), char_vectors.size(1), pos_vectors.size(1)
         self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
         nn.init.xavier_uniform_(self.char_embed.weight)
         # self.char_conv = nn.Sequential(
@@ -61,26 +62,30 @@ class InputEmbedding(nn.Module):
         # )
         self.char_conv = DepthWiseSeparableConv(self.CHAR_LIMIT * char_emb_dim, kernel_size=5)
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
-        self.proj = nn.Linear(word_vectors.size(1) + char_emb_dim * self.CHAR_LIMIT, hidden_size, bias=False)
+        self.pos_embed = nn.Embedding.from_pretrained(pos_vectors)
+        emb_dim = word_vectors.size(1) + (hidden_size if use_char_cnn else self.CHAR_LIMIT * char_emb_dim)
+
+        self.proj = Conv1dLinear(emb_dim, hidden_size, bias=False)
+        # self.proj = nn.Linear(emb_dim, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, w_idx, c_idx):
-        # (batch_size, seq_len, word_embed_size)
-        word_emb = self.word_embed(w_idx)
-        # (batch_size, seq_len, char_limit, char_embed_size)
-        char_emb = self.char_embed(c_idx)
-        # (batch_size, seq_len, char_limit * char_embed_size)
-        char_emb = self.char_conv(char_emb.view(*char_emb.shape[:2], -1))
-        
-        # (N batch_size, H seq_len, C char_limit, W char_embed_size) -> (N, C, H, W)
-        # char_emb = self.char_embed(c_idx).transpose(1, 2).to(memory_format=torch.channels_last)
-        # char_emb = self.char_conv(char_emb).transpose(1, 2) # (batch_size, seq_len, char_limit, char_embed_size) 
-        
-        # (batch_size, seq_len, embed_size)
-        emb = torch.cat((word_emb, char_emb), dim=2)
-        emb = F.dropout(emb, self.drop_prob, self.training)
-        emb = self.proj(emb)
-        emb = self.hwy(emb)   # (batch_size, seq_len, emb_size)
+        word_emb = self.word_embed(w_idx)   # (batch_size, seq_len, word_embed_size)
+        char_emb = self.char_embed(c_idx)   # (batch_size, seq_len, char_limit, char_embed_size)
+        pos_emb = self.pos_embed(w_idx)          # (batch_size, )
+
+        if self.char_conv == None:
+            char_emb = char_emb.view((*char_emb.shape[:2], -1))
+            char_emb = F.dropout(char_emb, self.drop_prob * 0.5, self.training)        
+        else:
+            # bs, sl, _, char_emb_dim = char_emb.shape
+            char_emb = self.char_conv(char_emb.permute(0, 3, 1, 2)).permute(0, 2, 1) # (batch_size, seq_len, embed_size)
+
+        emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
+        # emb = F.dropout(emb, stochastic_depth_layer_dropout(self.drop_prob, 1, self.num_layers), self.training)
+        emb = self.proj(emb)  # (batch_size, seq_len, embed_size)
+        emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
+        # emb = F.dropout(emb, self.drop_prob, self.training)
 
         return emb
 

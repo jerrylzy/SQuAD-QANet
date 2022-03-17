@@ -46,13 +46,17 @@ def main(args):
     # Get embeddings
     log.info('Loading embeddings...')
     word_vectors = util.torch_from_json(args.word_emb_file)
+    print("a",word_vectors.shape)
     char_vectors = util.torch_from_json(args.char_emb_file)
+    print("b", char_vectors.shape)
+    pos_vectors = util.torch_from_json(args.pos_file)
 
     # Get model
     log.info('Building model...')
     if args.qanet:
         model = QANet(char_vectors=char_vectors,
                       word_vectors=word_vectors,
+                      pos_vectors=pos_vectors,
                       hidden_size=args.hidden_size,
                       drop_prob=args.drop_prob,
                       project=args.project)

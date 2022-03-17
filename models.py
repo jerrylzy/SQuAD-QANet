@@ -109,13 +109,21 @@ class QANet(nn.Module):
         drop_prob (float): Dropout probability.
     """
 
-    def __init__(self, char_vectors, word_vectors, hidden_size=128, drop_prob=0., project=True):
+    def __init__(self, char_vectors, word_vectors, pos_vectors, hidden_size=128, drop_prob=0., project=False, use_char_cnn=True):
         super().__init__()
         self.emb = qanet_layers.InputEmbedding(char_vectors=char_vectors,
                                                word_vectors=word_vectors,
                                                hidden_size=hidden_size,
                                                drop_prob=drop_prob)
 
+        # Dimension of the embedding layer output.
+        self.emb = qanet_layers.Embedding(char_vectors=char_vectors,
+                                    word_vectors=word_vectors,
+                                    pos_vectors=pos_vectors,
+                                    hidden_size=hidden_size,
+                                    drop_prob=drop_prob,
+                                    use_char_cnn=use_char_cnn)
+        num_conv_layers = 4
         self.enc = qanet_layers.EncoderBlock(
             hidden_size=hidden_size,
             num_heads=8,
