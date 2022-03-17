@@ -722,7 +722,7 @@ def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
 
 def eval_dicts(gold_dict, pred_dict, no_answer, save_dir=None):
     avna = f1 = em = total = 0
-    q_types = ['how', 'what', 'why', 'which', 'who', 'where', 'when', 'other']
+    q_types = ['how many', 'how', 'what', 'why', 'which', 'who', 'where', 'when', 'other']
     totals = dict()
     ems = dict()
     f1s = dict()
@@ -747,7 +747,7 @@ def eval_dicts(gold_dict, pred_dict, no_answer, save_dir=None):
 
         if save_dir != None:
             for q_type in q_types:
-                if q_type in gold_dict[key]['question'] or q_type == 'other':
+                if q_type == 'other' or q_type in gold_dict[key]['question'].lower():
                     totals[q_type] += 1
                     ems[q_type] += cur_em
                     f1s[q_type] += cur_f1

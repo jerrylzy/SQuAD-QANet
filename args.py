@@ -272,4 +272,8 @@ def add_train_test_args(parser):
                         type=bool,
                         default=False,
                         help='Whether to project the BiDAF attention layer to a smaller dimension.')
+    parser.add_argument('--use_seq',
+                        type=bool,
+                        default=False,
+                        help='Whether to use sequential emb->dropout in the input embedding layer.')
 

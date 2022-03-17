@@ -57,7 +57,8 @@ def main(args):
                       hidden_size=args.hidden_size,
                       drop_prob=args.drop_prob,
                       project=args.project,
-                      use_char_cnn=args.use_char_cnn)
+                      use_char_cnn=args.use_char_cnn,
+                      use_seq=args.use_seq)
     else:
         model = BiDAF(char_vectors=char_vectors,
                       word_vectors=word_vectors,
