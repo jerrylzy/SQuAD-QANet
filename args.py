@@ -279,4 +279,8 @@ def add_train_test_args(parser):
                         type=bool,
                         default=False,
                         help='Whether to use sequential emb->dropout in the input embedding layer.')
+    parser.add_argument('--use_pos',
+                        type=bool,
+                        default=False,
+                        help='Whether to use POS Tagging in the input embedding layer.')
 
