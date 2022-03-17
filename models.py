@@ -141,6 +141,7 @@ class QANet(nn.Module):
                                     drop_prob=drop_prob,
                                     use_char_cnn=use_char_cnn,
                                     use_seq=use_seq)
+
         num_conv_layers = 4
         self.enc = qanet_layers.EncoderBlock(
             hidden_size=hidden_size,

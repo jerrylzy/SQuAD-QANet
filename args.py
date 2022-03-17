@@ -207,6 +207,9 @@ def add_common_args(parser):
     parser.add_argument('--char_emb_file',
                         type=str,
                         default='./data/char_emb.json')
+    parser.add_argument('--pos_file',
+                        type=str,
+                        default='./data/pos.json')
     parser.add_argument('--train_eval_file',
                         type=str,
                         default='./data/train_eval.json')
@@ -276,4 +279,8 @@ def add_train_test_args(parser):
                         type=bool,
                         default=False,
                         help='Whether to use sequential emb->dropout in the input embedding layer.')
+    parser.add_argument('--use_pos',
+                        type=bool,
+                        default=False,
+                        help='Whether to use POS Tagging in the input embedding layer.')
 

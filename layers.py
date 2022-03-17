@@ -85,12 +85,13 @@ class Embedding(nn.Module):
     (see `HighwayEncoder` class for details).
 
     Args:
-        char_vectors (torch.Tensor): Pre-trained char vectors.
+        char_vectors (torch.Tensor): Random char vectors.
         word_vectors (torch.Tensor): Pre-trained word vectors.
+        pos_vectors (torch.Tensor): POS tagging for each word.
         hidden_size (int): Size of hidden activations.
         drop_prob (float): Probability of zero-ing out activations
     """
-    def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob, use_char_cnn=False):
+    def __init__(self, char_vectors, word_vectors, pos_vectors=None, hidden_size=100, drop_prob=0.2, use_char_cnn=False):
         super(Embedding, self).__init__()
         self.drop_prob = drop_prob
         self.num_layers = 2
@@ -98,6 +99,7 @@ class Embedding(nn.Module):
         # char_emb_dim = char_vectors.size(1)
         # self.char_embed = nn.Embedding.from_pretrained(char_vectors, freeze=False, padding_idx=0)
         vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
+        pos_emb_dim = pos_vectors.size(1) if pos_vectors != None else None
         self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
 
         # (batch_size, hidden_size, seq_len, char_limit)
@@ -108,7 +110,9 @@ class Embedding(nn.Module):
                                 char_limit=self.CHAR_LIMIT) if use_char_cnn else None
 
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
+        self.pos_embed = nn.Embedding.from_pretrained(pos_vectors) if pos_vectors != None else None
         emb_dim = word_vectors.size(1) + (hidden_size if use_char_cnn else self.CHAR_LIMIT * char_emb_dim)
+        + (pos_emb_dim if pos_vectors != None else 0)
 
         # self.proj = Conv1dLinear(emb_dim, hidden_size, bias=False)
         self.proj = nn.Linear(emb_dim, hidden_size, bias=False)
@@ -124,7 +128,11 @@ class Embedding(nn.Module):
             # bs, sl, _, char_emb_dim = char_emb.shape
             char_emb = self.char_conv(char_emb.permute(0, 3, 1, 2)).permute(0, 2, 1) # (batch_size, seq_len, embed_size)
 
-        emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
+        if self.pos_embed != None:
+            pos_emb = self.pos_embed(w_idx)
+            emb = torch.cat((word_emb, char_emb, pos_emb), dim=2)
+        else:
+            emb = torch.cat((word_emb, char_emb), dim=2)   # (batch_size, seq_len, embed_size)
         emb = F.dropout(emb, self.drop_prob, self.training)
         emb = self.proj(emb)  # (batch_size, seq_len, embed_size)
         emb = self.hwy(emb)   # (batch_size, seq_len, hidden_size)
