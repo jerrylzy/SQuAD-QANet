@@ -3,6 +3,7 @@
 Author:
     Chris Chute (chute@stanford.edu)
 """
+import csv
 import logging
 import os
 import queue
@@ -608,6 +609,73 @@ def discretize(p_start, p_end, max_len=15, no_answer=False):
     return start_idxs, end_idxs
 
 
+def discretize_ensemble(p_starts, p_ends, max_len=15, no_answer=False):
+    """Discretize soft predictions to get start and end indices.
+
+    Choose the pair `(i, j)` of indices that maximizes `p1[i] * p2[j]`
+    subject to `i <= j` and `j - i + 1 <= max_len`.
+
+    Args:
+        p_start (torch.Tensor): Soft predictions for start index.
+            Shape (batch_size, context_len).
+        p_end (torch.Tensor): Soft predictions for end index.
+            Shape (batch_size, context_len).
+        max_len (int): Maximum length of the discretized prediction.
+            I.e., enforce that `preds[i, 1] - preds[i, 0] + 1 <= max_len`.
+        no_answer (bool): Treat 0-index as the no-answer prediction. Consider
+            a prediction no-answer if `preds[0, 0] * preds[0, 1]` is greater
+            than the probability assigned to the max-probability span.
+
+    Returns:
+        start_idxs (torch.Tensor): Hard predictions for start index.
+            Shape (batch_size,)
+        end_idxs (torch.Tensor): Hard predictions for end index.
+            Shape (batch_size,)
+    """
+    p_joint = None
+    for p_start, p_end in zip(p_starts, p_ends):
+        if p_start.min() < 0 or p_start.max() > 1 \
+                or p_end.min() < 0 or p_end.max() > 1:
+            raise ValueError('Expected p_start and p_end to have values in [0, 1]')
+
+        # Compute pairwise probabilities
+        p_start = p_start.unsqueeze(dim=2)
+        p_end = p_end.unsqueeze(dim=1)
+        p_joint_current = torch.matmul(p_start, p_end)  # (batch_size, c_len, c_len)
+        if p_joint == None:
+            p_joint = p_joint_current
+        else:
+            p_joint = torch.maximum(p_joint, p_joint_current)
+
+    # Restrict to pairs (i, j) such that i <= j <= i + max_len - 1
+    c_len, device = p_start.size(1), p_start.device
+    is_legal_pair = torch.triu(torch.ones((c_len, c_len), device=device))
+    is_legal_pair -= torch.triu(torch.ones((c_len, c_len), device=device),
+                                diagonal=max_len)
+    if no_answer:
+        # Index 0 is no-answer
+        p_no_answer = p_joint[:, 0, 0].clone()
+        is_legal_pair[0, :] = 0
+        is_legal_pair[:, 0] = 0
+    else:
+        p_no_answer = None
+    p_joint *= is_legal_pair
+
+    # Take pair (i, j) that maximizes p_joint
+    max_in_row, _ = torch.max(p_joint, dim=2)
+    max_in_col, _ = torch.max(p_joint, dim=1)
+    start_idxs = torch.argmax(max_in_row, dim=-1)
+    end_idxs = torch.argmax(max_in_col, dim=-1)
+
+    if no_answer:
+        # Predict no-answer whenever p_no_answer > max_prob
+        max_prob, _ = torch.max(max_in_col, dim=-1)
+        start_idxs[p_no_answer > max_prob] = 0
+        end_idxs[p_no_answer > max_prob] = 0
+
+    return start_idxs, end_idxs
+
+
 def convert_tokens(eval_dict, qa_id, y_start_list, y_end_list, no_answer):
     """Convert predictions to tokens from the context.
 
@@ -652,16 +720,60 @@ def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
     return max(scores_for_ground_truths)
 
 
-def eval_dicts(gold_dict, pred_dict, no_answer):
+def eval_dicts(gold_dict, pred_dict, no_answer, save_dir=None):
     avna = f1 = em = total = 0
+    q_types = ['how many', 'how', 'what', 'why', 'which', 'who', 'where', 'when', 'other']
+    totals = dict()
+    ems = dict()
+    f1s = dict()
+    avnas = dict()
+    for q_type in q_types:
+        totals[q_type] = 0
+        ems[q_type] = 0.
+        f1s[q_type] = 0.
+        avnas[q_type] = 0.
+
     for key, value in pred_dict.items():
         total += 1
         ground_truths = gold_dict[key]['answers']
         prediction = value
-        em += metric_max_over_ground_truths(compute_em, prediction, ground_truths)
-        f1 += metric_max_over_ground_truths(compute_f1, prediction, ground_truths)
+        cur_em = metric_max_over_ground_truths(compute_em, prediction, ground_truths)
+        cur_f1 = metric_max_over_ground_truths(compute_f1, prediction, ground_truths)
+        em += cur_em
+        f1 += cur_f1
         if no_answer:
-            avna += compute_avna(prediction, ground_truths)
+            cur_avna = compute_avna(prediction, ground_truths)
+            avna += cur_avna
+
+        if save_dir != None:
+            for q_type in q_types:
+                if q_type == 'other' or q_type in gold_dict[key]['question'].lower():
+                    totals[q_type] += 1
+                    ems[q_type] += cur_em
+                    f1s[q_type] += cur_f1
+
+                    if no_answer:
+                        avnas[q_type] += cur_avna
+                    break
+
+    if save_dir != None:
+        for q_type in q_types:
+            ems[q_type] = 100. * ems[q_type] / totals[q_type] if totals[q_type] != 0 else 0
+            f1s[q_type] = 100. * f1s[q_type] / totals[q_type] if totals[q_type] != 0 else 0
+            if no_answer:
+                avnas[q_type] = 100. * avnas[q_type] / totals[q_type] if totals[q_type] != 0 else 0
+
+        def write_to_csv(filepath, dict_data):
+            with open(filepath, 'w') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=dict_data.keys())
+                writer.writeheader()
+                writer.writerow(dict_data)
+
+        write_to_csv(f'{save_dir}/dev_ems.csv', ems)
+        write_to_csv(f'{save_dir}/dev_f1s.csv', f1s)
+
+        if no_answer:
+            write_to_csv(f'{save_dir}/dev_avnas.csv', avnas)
 
     eval_dict = {'EM': 100. * em / total,
                  'F1': 100. * f1 / total}
@@ -723,3 +835,9 @@ def compute_f1(a_gold, a_pred):
     recall = 1.0 * num_same / len(gold_toks)
     f1 = (2 * precision * recall) / (precision + recall)
     return f1
+
+
+def stochastic_depth_layer_dropout(drop_prob, layer_number, num_layers):
+    # assert layer_number <= num_layers
+    return drop_prob * layer_number / num_layers
+    # return drop_prob

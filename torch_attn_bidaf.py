@@ -13,6 +13,28 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from util import masked_softmax, stochastic_depth_layer_dropout, get_available_devices
 device, _ = get_available_devices()
 
+
+class ResidualBlock(nn.Module):
+    """
+    Residual Block
+    """
+
+    def __init__(self, module, hidden_size, residual_dropout_p=0.1):
+        super().__init__()
+        self.module = module
+        self.layer_norm = nn.LayerNorm(hidden_size, device=device)
+        self.residual_dropout = nn.Dropout(residual_dropout_p)
+
+    def forward(self, x, mask=None):
+        # Normalize
+        input = self.layer_norm(x)
+        # Apply module
+        output = self.residual_dropout(self.module(input, mask)) if mask != None else self.residual_dropout(self.module(input))
+        # Add residual connection
+        output = output + x
+        return output
+
+
 class FeedForward(nn.Module):
     """
     Feed Forward Layer
@@ -50,8 +72,8 @@ class CharCNN(nn.Module):
 
     def forward(self, x):
         emb = self.conv(x)
-        emb = F.relu(emb)
         emb = self.bm(emb)
+        emb = F.relu(emb)
         emb = self.maxpool(emb)
         return self.dropout(emb).squeeze(3)
 
@@ -95,23 +117,21 @@ class Embedding(nn.Module):
         self.drop_prob = drop_prob
         self.num_layers = 2
 
-        # char_emb_dim = char_vectors.size(1)
-        # self.char_embed = nn.Embedding.from_pretrained(char_vectors, freeze=False, padding_idx=0)
-        vocab_size, char_emb_dim = char_vectors.size(0), char_vectors.size(1)
-        self.char_embed = nn.Embedding(vocab_size, char_emb_dim, padding_idx=0)
+        char_emb_dim = char_vectors.size(1)
+        self.char_embed = nn.Embedding.from_pretrained(char_vectors, freeze=False, padding_idx=0)
 
         # (batch_size, hidden_size, seq_len, char_limit)
         self.char_conv = CharCNN(char_emb_dim=char_emb_dim,
                                 hidden_size=hidden_size,
                                 kernel_width=5,
-                                drop_prob=0,
+                                drop_prob=drop_prob * 0.5,
                                 char_limit=self.CHAR_LIMIT) if use_char_cnn else None
 
         self.word_embed = nn.Embedding.from_pretrained(word_vectors)
         emb_dim = word_vectors.size(1) + (hidden_size if use_char_cnn else self.CHAR_LIMIT * char_emb_dim)
 
-        # self.proj = Conv1dLinear(emb_dim, hidden_size, bias=False)
-        self.proj = nn.Linear(emb_dim, hidden_size, bias=False)
+        self.proj = Conv1dLinear(emb_dim, hidden_size, bias=False)
+        # self.proj = nn.Linear(emb_dim, hidden_size, bias=False)
         self.hwy = HighwayEncoder(2, hidden_size)
 
     def forward(self, w_idx, c_idx):
@@ -221,62 +241,41 @@ class PositionalEncoding(nn.Module):
     """
     Fixed positional encoding layer
     """
-    def __init__(self, hidden_size, dropout=0.1, max_len=5000):
-        super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-        assert hidden_size % 2 == 0
 
-        pe = torch.zeros(1, max_len, hidden_size)
-        i = torch.arange(0, max_len).repeat((hidden_size // 2, 1)).T
-        j = torch.arange(0, hidden_size, 2)
-        index = i * 10000 ** (-j / hidden_size)
-        pe[:, :, 0::2] = torch.sin(index)
-        pe[:, :, 1::2] = torch.cos(index)
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 1024):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, 1, d_model, device=device)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
         self.register_buffer('pe', pe)
 
-    def forward(self, x):
-        # x.shape = batch size, sequence size, embedding dimension
-        output = self.dropout(x + self.pe[:, :x.shape[1], :])
-        return output
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: Tensor, shape [seq_len, batch_size, embedding_dim]
+        """
+        x = x + self.pe[:x.size(0)]
+        return self.dropout(x)
 
 
 class MultiHeadAttention(nn.Module):
     """
     Transformer Multihead Self-Attention
     """
+
     def __init__(self, hidden_size, num_heads, dropout=0.1):
         super(MultiHeadAttention, self).__init__()
         assert hidden_size % num_heads == 0
 
-        self.key = nn.Linear(hidden_size, hidden_size)
-        self.query = nn.Linear(hidden_size, hidden_size)
-        self.value = nn.Linear(hidden_size, hidden_size)
-        self.proj = nn.Linear(hidden_size, hidden_size)
-        self.num_heads = num_heads
-        self.d_k = hidden_size // num_heads
-        self.scaled_dk = math.sqrt(self.d_k)
-        self.softmax = nn.Softmax(dim=-1)
-        self.dropout = nn.Dropout(dropout)
+        self.ma = nn.MultiheadAttention(hidden_size, num_heads, dropout, batch_first=True, device=device)
 
     def forward(self, x, attn_mask=None):
-        # batch size, sequence size, embedding dimension
-        N, S, _ = x.shape
-        H = self.num_heads
-        q = self.query(x).view(N, S, H, self.d_k).transpose(1, 2) # (N, H, S, dk)
-        k = self.key(x).view(N, S, H, self.d_k).transpose(1, 2)     # (N, H, T, dk)
-        v = self.value(x).view(N, S, H, self.d_k).transpose(1, 2) # (N, H, T, dk)
-
-        attn = torch.matmul(q, k.transpose(2, 3)) / self.scaled_dk # Scaled Dot Product Attention
-
-        if attn_mask != None:
-            attn_mask = attn_mask.view(N, 1, 1, S)
-            attn = attn.masked_fill(attn_mask == 0, -math.inf)
-
-        attn = self.dropout(self.softmax(attn)) # (N, H, S, T)
-
-        y = torch.matmul(attn, v).transpose(1, 2).contiguous().view(N, S, -1)
-        output = self.proj(y)
-        return output
+        attn_output, _ = self.ma(x, x, x, key_padding_mask = attn_mask.int())
+        return attn_output
 
 
 class SelfAttention(nn.Module):
@@ -288,7 +287,7 @@ class SelfAttention(nn.Module):
 
         # Attention
         self.pe = PositionalEncoding(hidden_size, 0)
-        # self.layer_norm_0 = nn.LayerNorm(hidden_size)
+        self.layer_norm_0 = nn.LayerNorm(hidden_size)
         self.multihead_att = MultiHeadAttention(hidden_size, num_heads, dropout)
         self.residual_dropout_1 = nn.Dropout(dropout)
         self.layer_norm_1 = nn.LayerNorm(hidden_size)
@@ -300,7 +299,7 @@ class SelfAttention(nn.Module):
 
     def forward(self, x, mask=None):
 
-        # x = self.layer_norm_0(x)
+        x = self.layer_norm_0(x)
 
         # Add positional encoding
         x = self.pe(x)
@@ -424,3 +423,98 @@ class BiDAFOutput(nn.Module):
         log_p2 = masked_softmax(logits_2.squeeze(), mask, log_softmax=True)
 
         return log_p1, log_p2
+
+
+class KaimingBiDAF(nn.Module):
+    """Baseline BiDAF model for SQuAD.
+    Based on the paper:
+    "Bidirectional Attention Flow for Machine Comprehension"
+    by Minjoon Seo, Aniruddha Kembhavi, Ali Farhadi, Hannaneh Hajishirzi
+    (https://arxiv.org/abs/1611.01603).
+    Follows a high-level structure commonly found in SQuAD models:
+        - Embedding layer: Embed char/word indices to get char/word vectors.
+        - Encoder layer: Encode the embedded sequence.
+        - Attention layer: Apply an attention mechanism to the encoded sequence.
+        - Model encoder layer: Encode the sequence again.
+        - Output layer: Simple layer (e.g., fc + softmax) to get final outputs.
+    Args:
+        char_vectors (torch.Tensor): Pre-trained char vectors.
+        word_vectors (torch.Tensor): Pre-trained word vectors.
+        hidden_size (int): Number of features in the hidden state at each layer.
+        drop_prob (float): Dropout probability.
+        use_char_cnn (bool): Whether to use Char-CNN
+    """
+
+    def __init__(self, char_vectors, word_vectors, hidden_size, drop_prob=0., use_char_cnn=False, num_heads=8):
+        super(KaimingBiDAF, self).__init__()
+        self.emb = Embedding(char_vectors=char_vectors,
+                                    word_vectors=word_vectors,
+                                    hidden_size=hidden_size,
+                                    drop_prob=drop_prob,
+                                    use_char_cnn=use_char_cnn)
+
+        self.enc = RNNEncoder(input_size=hidden_size,
+                                     hidden_size=hidden_size,
+                                     num_layers=1,
+                                     drop_prob=drop_prob)
+
+        self.att = BiDAFAttention(hidden_size=2 * hidden_size,
+                                         drop_prob=drop_prob)
+
+        self.self_att = SelfAttention(hidden_size=2 * hidden_size,
+                                             num_heads=num_heads,
+                                             dropout=drop_prob)
+
+        self.mod = RNNEncoder(input_size=10 * hidden_size,
+                                     hidden_size=2 * hidden_size,
+                                     num_layers=2,
+                                     drop_prob=drop_prob)
+
+        self.out = BiDAFOutput(hidden_size=hidden_size,
+                                      drop_prob=drop_prob * 0.5)
+        self.apply(self._init_weights)
+
+
+    def _init_weights(self, module):
+        # if isinstance(module, (nn.Linear, nn.Embedding)):
+        #     module.weight.data.normal_(mean=0.0, std=0.02)
+        #     if isinstance(module, nn.Linear) and module.bias is not None:
+        #         module.bias.data.zero_()
+        # elif isinstance(module, nn.LayerNorm):
+        #     module.bias.data.zero_()
+        #     module.weight.data.fill_(1.0)
+        if isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+
+
+    def forward(self, cw_idxs, cc_idxs, qw_idxs, qc_idxs):
+        c_mask = torch.zeros_like(cw_idxs) != cw_idxs
+        q_mask = torch.zeros_like(qw_idxs) != qw_idxs
+        c_len, q_len = c_mask.sum(-1), q_mask.sum(-1)
+
+        # (batch_size, c_len, hidden_size)
+        c_emb = self.emb(cw_idxs, cc_idxs)
+        # (batch_size, q_len, hidden_size)
+        q_emb = self.emb(qw_idxs, qc_idxs)
+
+        # (batch_size, c_len, 2 * hidden_size)
+        c_enc = self.enc(c_emb, c_len)
+        # (batch_size, q_len, 2 * hidden_size)
+        q_enc = self.enc(q_emb, q_len)
+
+        att = self.att(c_enc, q_enc,
+                       c_mask, q_mask)    # (batch_size, c_len, 8 * hidden_size)
+
+        # (batch_size, c_len, 2 * hidden_size)
+        self_att = self.self_att(c_enc, c_mask)
+
+        concat_att = torch.cat((att, self_att), dim=2)
+
+        # (batch_size, c_len, 2 * hidden_size)
+        mod = self.mod(concat_att, c_len)
+
+        # 2 tensors, each (batch_size, c_len)
+        out = self.out(concat_att, mod, c_mask)
+
+        return out

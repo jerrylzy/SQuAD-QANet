@@ -36,12 +36,13 @@ def main(args):
     log.info(f'Args: {dumps(vars(args), indent=4, sort_keys=True)}')
     args.batch_size *= max(1, len(args.gpu_ids))
 
-    # Set random seed
-    log.info(f'Using random seed {args.seed}...')
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
+    if args.seed != 0:
+        # Set random seed
+        log.info(f'Using random seed {args.seed}...')
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
 
     # Get embeddings
     log.info('Loading embeddings...')
@@ -59,12 +60,15 @@ def main(args):
                       pos_vectors=pos_vectors,
                       hidden_size=args.hidden_size,
                       drop_prob=args.drop_prob,
-                      project=args.project)
+                      project=args.project,
+                      use_char_cnn=args.use_char_cnn,
+                      use_seq=args.use_seq)
     else:
         model = BiDAF(char_vectors=char_vectors,
                       word_vectors=word_vectors,
                       hidden_size=args.hidden_size,
-                      drop_prob=args.drop_prob)
+                      drop_prob=args.drop_prob,
+                      use_char_cnn=args.use_char_cnn)
     model = nn.DataParallel(model, args.gpu_ids)
     if args.load_path:
         log.info(f'Loading checkpoint from {args.load_path}...')
@@ -83,14 +87,17 @@ def main(args):
 
     # Get optimizer and scheduler
     if args.qanet:
-        optimizer = optim.Adam(model.parameters(), args.lr, betas=(0.8, 0.999), eps=1e-7, weight_decay=3 * 1e-7)
+        optimizer = optim.Adam(model.parameters(), args.lr, betas=(0.8, 0.999), eps=1e-7, weight_decay=args.l2_wd)
         ema = util.EMA(model, 0.9999)
+        scheduler = sched.LambdaLR(optimizer, lambda step: 1 - 0.9 ** step if step <= 1e3 else 1)  # Exp warmup, constant LR
+        # scheduler = sched.LambdaLR(optimizer, lambda step: 1)  # Constant LR
     else:
         ema = util.EMA(model, args.ema_decay)
         optimizer = optim.Adadelta(model.parameters(), args.lr, weight_decay=args.l2_wd)
+        scheduler = sched.LambdaLR(optimizer, lambda step: 1)  # Constant LR
 
-    # 
-    scheduler = sched.LambdaLR(optimizer, lambda epoch: 1)  # Constant LR
+    # scheduler = sched.ExponentialLR(optimizer, gamma=-0.1)
+    # scheduler = sched.CyclicLR(optimizer, base_lr=args.lr * 0.5, max_lr=args.lr * 1.5, cycle_momentum=False)
 
     # Get data loader
     log.info('Building dataset...')
@@ -199,7 +206,8 @@ def main(args):
                 if steps_till_eval <= 0:
                     steps_till_eval = args.eval_steps
                     eval_and_save()
-        eval_and_save()
+        if args.eval_after_epoch:
+            eval_and_save()
 
 def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2):
     nll_meter = util.AverageMeter()
