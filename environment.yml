@@ -1,8 +1,9 @@
 name: squad
 channels:
-  - pytorch
+  - pytorch-nightly
   - conda-forge
   - defaults
+  - nvidia
 dependencies:
   - python=3.11
   - ujson
@@ -15,4 +16,4 @@ dependencies:
   - tqdm
   - urllib3
   - pytorch
-  - pytorch-cuda=11.8
+  - pytorch-cuda=12.1
