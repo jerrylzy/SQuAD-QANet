@@ -63,7 +63,7 @@ def main(args):
     else:
         model = BiDAF(char_vectors=char_vectors,
                       word_vectors=word_vectors,
-                      pos_vectors=pos_vectors,
+                    #   pos_vectors=pos_vectors,
                       hidden_size=args.hidden_size,
                       drop_prob=args.drop_prob,
                       use_char_cnn=args.use_char_cnn)

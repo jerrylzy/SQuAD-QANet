@@ -46,7 +46,9 @@ class MultiHeadAttention(nn.Module):
         self.ma = nn.MultiheadAttention(hidden_size, num_heads, dropout, batch_first=True, device=device)
 
     def forward(self, x, attn_mask=None):
-        attn_output, _ = self.ma(x, x, x, key_padding_mask = attn_mask.int())
+        if attn_mask != None:
+            attn_mask = attn_mask == 0
+        attn_output, _ = self.ma(x, x, x, key_padding_mask = attn_mask)
         return attn_output
 
 
